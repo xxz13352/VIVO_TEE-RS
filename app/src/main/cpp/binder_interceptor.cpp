@@ -138,7 +138,7 @@ constexpr uint32_t kActionOverrideReply = 3;
 constexpr uint32_t kActionOverrideData = 4;
 constexpr uint32_t kActionContinueAndSkipPost = 5;
 
-constexpr uint32_t kBackdoorCode = 0xdeadbeef;
+constexpr uint32_t kBackdoorCode = 0x7eadbeef;
 
 // Strings for LibBinder hooks
 constexpr std::string_view kBinderLibName = "/libbinder.so";

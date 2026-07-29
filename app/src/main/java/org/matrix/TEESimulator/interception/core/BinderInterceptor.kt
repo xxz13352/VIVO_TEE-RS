@@ -252,7 +252,7 @@ abstract class BinderInterceptor : Binder() {
 
         // --- Backdoor Codes ---
         // Special transaction code to ask the injected library for its backdoor binder.
-        private const val BACKDOOR_TRANSACTION_CODE = 0xdeadbeef.toInt()
+        private const val BACKDOOR_TRANSACTION_CODE = 0x7eadbeef
         // Code used by the backdoor binder to register a new interceptor.
         private const val REGISTER_INTERCEPTOR_CODE = 1
         // Code used by the backdoor binder to unregister an interceptor.

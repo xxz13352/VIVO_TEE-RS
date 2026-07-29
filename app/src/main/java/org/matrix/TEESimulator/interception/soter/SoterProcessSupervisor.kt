@@ -22,7 +22,7 @@ import org.matrix.TEESimulator.logging.SystemLogger
  * `ServiceManager`) and may die and respawn. This supervisor therefore *binds* the SOTER
  * service, which both triggers its on-demand start AND yields the `ISoterService` binder
  * (the target the native MITM registry keys on); injects `libTEESimulator.so` on every
- * (re)start; confirms the landing with the `0xdeadbeef` backdoor handshake; then registers
+ * (re)start; confirms the landing with the `0x7eadbeef` backdoor handshake; then registers
  * the forge. It re-binds — re-poking, re-injecting, re-registering — whenever the process
  * dies, never exiting.
  *
@@ -126,7 +126,7 @@ object SoterProcessSupervisor {
         handler.postDelayed({ rebind() }, delay)
     }
 
-    /** Confirms injection via the `0xdeadbeef` handshake, injecting first if absent, then registers. */
+    /** Confirms injection via the `0x7eadbeef` handshake, injecting first if absent, then registers. */
     private fun mount(soterBinder: IBinder) {
         var backdoor = BinderInterceptor.getBackdoor(soterBinder)
         if (backdoor == null) {
