@@ -1,6 +1,6 @@
 [versions]
 agp = "8.13.2"
-annotation = "1.9.1"
+annotation = "1.10.0"
 jdk18on = "1.83"
 kotlin = "2.3.0"
 ktfmt = "0.25.0"
