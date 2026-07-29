@@ -3,7 +3,7 @@ agp = "8.13.2"
 annotation = "1.9.1"
 jdk18on = "1.83"
 kotlin = "2.3.0"
-ktfmt = "0.25.0"
+ktfmt = "0.26.0"
 
 [libraries]
 annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
