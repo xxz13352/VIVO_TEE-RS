@@ -16,6 +16,7 @@ fi
 # --- Version Info ---
 VERSION=$(grep_prop version "${TMPDIR}/module.prop")
 ui_print "- Installing TEESimulator-RS $VERSION"
+ui_print "- 酷安@酷狗贼定制 (vivo Android 16 适配版)"
 ui_print ""
 
 # --- Architecture Handling ---
