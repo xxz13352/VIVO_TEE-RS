@@ -111,3 +111,44 @@ test('activation issuer signs a WebUI fingerprint without network access', async
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('activation issuer collects missing arguments interactively', async (t) => {
+  if (process.platform === 'win32' && !existsSync(bashPath)) {
+    t.skip('Git Bash is required to run the shell fixture on Windows');
+  }
+
+  const directory = await mkdtemp(join(tmpdir(), 'teesimulator-activation-interactive-'));
+  const privateKey = join(directory, 'license-private.pem');
+  const publicKey = join(directory, 'license-public.hex');
+  const license = join(directory, 'interactive.lic');
+  const fingerprint = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+  try {
+    assert.equal(run(['init', '--private-key', privateKey, '--public-key', publicKey]).status, 0);
+    const issued = spawnSync(bashPath, [shellScriptPath], {
+      encoding: 'utf8',
+      input: `${fingerprint}\n${license}\ninteractive-test\n30\n`,
+      env: { ...process.env, LICENSE_PRIVATE_KEY: privateKey, PYTHON: python },
+    });
+    assert.equal(issued.status, 0, issued.stderr || issued.stdout);
+    assert.match(issued.stderr, /设备指纹/);
+    assert.equal(
+      run([
+        'verify',
+        '--public-key',
+        publicKey,
+        '--license',
+        license,
+      ]).status,
+      0,
+    );
+    const incomplete = spawnSync(bashPath, [shellScriptPath], {
+      encoding: 'utf8',
+      input: `${fingerprint}\n`,
+      timeout: 5000,
+      env: { ...process.env, LICENSE_PRIVATE_KEY: privateKey, PYTHON: python },
+    });
+    assert.equal(incomplete.status, 2, incomplete.stderr || incomplete.stdout);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
