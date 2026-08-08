@@ -1,10 +1,12 @@
 const CONFIG_DIR = '/data/adb/tricky_store';
 const DEFAULT_KEYBOX = 'keybox.xml';
 const PATCH_FIELDS = ['system', 'vendor', 'boot', 'all'];
+const AUTO_PACKAGE_REFRESH_FILE = `${CONFIG_DIR}/auto_package_refresh`;
 const WRITABLE_PATHS = new Set([
   `${CONFIG_DIR}/target.txt`,
   `${CONFIG_DIR}/security_patch.txt`,
   `${CONFIG_DIR}/boot_props_mode`,
+  AUTO_PACKAGE_REFRESH_FILE,
 ]);
 
 function emptyPatchLevel() {
@@ -53,6 +55,14 @@ export function isValidPatchValue(value) {
 export function parseIntegrityStatus(value) {
   const status = String(value).trim();
   return ['verified', 'modified'].includes(status) ? status : 'unavailable';
+}
+
+export function parseAutoPackageRefresh(value) {
+  return String(value).trim() === 'enabled';
+}
+
+export function serializeAutoPackageRefresh(enabled) {
+  return enabled ? 'enabled\n' : 'disabled\n';
 }
 
 export function parseTargets(text) {
@@ -205,6 +215,7 @@ if (typeof document !== 'undefined') {
       patches: { global: emptyPatchLevel(), overrides: {} },
       targets: [],
       bootPropsMode: 'auto',
+      autoPackageRefresh: false,
       integrityStatus: 'unavailable',
       query: '',
       overridePackage: '',
@@ -234,16 +245,18 @@ if (typeof document !== 'undefined') {
       state.busy = true;
       render();
       try {
-        const [targets, patches, bootMode, keyboxOutput, integrityStatus] = await Promise.all([
+        const [targets, patches, bootMode, autoPackageRefresh, keyboxOutput, integrityStatus] = await Promise.all([
           readFile(`${CONFIG_DIR}/target.txt`),
           readFile(`${CONFIG_DIR}/security_patch.txt`),
           readFile(`${CONFIG_DIR}/boot_props_mode`),
+          readFile(AUTO_PACKAGE_REFRESH_FILE),
           exec(`find '${CONFIG_DIR}' -maxdepth 1 -type f -name '*.xml' -printf '%f\\n'`),
           readFile(`${CONFIG_DIR}/module_integrity_status`),
         ]);
         state.targets = parseTargets(targets);
         state.patches = parsePatchLevels(patches);
         state.bootPropsMode = ['auto', 'force', 'disable'].includes(bootMode.trim()) ? bootMode.trim() : 'auto';
+        state.autoPackageRefresh = parseAutoPackageRefresh(autoPackageRefresh);
         state.integrityStatus = parseIntegrityStatus(integrityStatus);
         if (keyboxOutput.errno !== 0) throw new Error(keyboxOutput.stderr || 'Could not list keyboxes');
         state.keyboxes = [...new Set([DEFAULT_KEYBOX, ...keyboxOutput.stdout.split(/\r?\n/).filter(isValidKeyboxName)])].sort();
@@ -276,6 +289,26 @@ if (typeof document !== 'undefined') {
       await loadState();
     }
 
+    async function saveAutoPackageRefresh() {
+      await writeFile(AUTO_PACKAGE_REFRESH_FILE, serializeAutoPackageRefresh(state.autoPackageRefresh));
+      toast(state.autoPackageRefresh ? '已开启自动更新应用包名' : '已关闭自动更新应用包名');
+    }
+
+    async function refreshPackageCatalog() {
+      state.busy = true;
+      render();
+      try {
+        const packageNames = listPackages('user');
+        state.packages = getPackagesInfo(packageNames) ?? [];
+        setStatus('应用目录已刷新', 'success');
+      } catch (error) {
+        setStatus(`刷新应用目录失败: ${error.message}`, 'error');
+      } finally {
+        state.busy = false;
+        render();
+      }
+    }
+
     function packageLabel(packageName) {
       return String(state.packages.find((item) => item.packageName === packageName)?.appLabel || packageName);
     }
@@ -299,7 +332,7 @@ if (typeof document !== 'undefined') {
           <button class="icon-button danger" type="button" data-action="remove" aria-label="移除 ${target.packageName}">Remove</button>
         </article>`).join('');
       const searchRows = results.map((item) => `<button type="button" class="search-result" data-action="add" data-package="${item.packageName}"><span>${escapeHtml(item.appLabel)}</span><small>${item.packageName}</small></button>`).join('');
-      return `<section class="panel-section"><div class="section-heading"><div><h2>目标应用</h2><p>选择需要模拟硬件证明的用户应用。</p></div><button type="button" class="primary" data-action="save-targets"${state.busy ? ' disabled' : ''}>保存</button></div><label class="field"><span>搜索并添加应用</span><input id="package-search" value="${escapeHtml(state.query)}" placeholder="应用名称或包名" autocomplete="off"></label><div class="search-results">${searchRows || (query ? '<p class="empty">没有匹配的可添加应用。</p>' : '')}</div><div class="target-list">${rows || '<p class="empty">还没有配置目标应用。</p>'}</div></section>`;
+      return `<section class="panel-section"><div class="section-heading"><div><h2>目标应用</h2><p>选择需要模拟硬件证明的用户应用。</p></div><div class="inline-actions"><button type="button" class="icon-button" data-action="refresh-packages" aria-label="刷新应用目录"${state.busy ? ' disabled' : ''}>Refresh</button><button type="button" class="primary" data-action="save-targets"${state.busy ? ' disabled' : ''}>保存</button></div></div><div class="setting-row"><div><h3>自动更新应用包名</h3><p>开启后，每次打开目标应用页都会刷新已安装应用目录，不会改动已保存的目标列表。</p></div><label class="switch"><input type="checkbox" data-role="auto-package-refresh"${state.autoPackageRefresh ? ' checked' : ''}><span aria-hidden="true"></span><b>${state.autoPackageRefresh ? '已开启' : '已关闭'}</b></label></div><label class="field"><span>搜索并添加应用</span><input id="package-search" value="${escapeHtml(state.query)}" placeholder="应用名称或包名" autocomplete="off"></label><div class="search-results">${searchRows || (query ? '<p class="empty">没有匹配的可添加应用。</p>' : '')}</div><div class="target-list">${rows || '<p class="empty">还没有配置目标应用。</p>'}</div></section>`;
     }
 
     function renderPatchFields(values, prefix) {
@@ -320,20 +353,30 @@ if (typeof document !== 'undefined') {
       return `<section class="panel-section"><div class="section-heading"><div><h2>系统设置</h2><p>修改启动状态属性和持久化证明密钥。</p></div></div>${integrity}<fieldset class="segmented"><legend>Boot props mode</legend>${['auto', 'force', 'disable'].map((mode) => `<label><input type="radio" name="boot-mode" value="${mode}"${state.bootPropsMode === mode ? ' checked' : ''}><span>${mode}</span></label>`).join('')}</fieldset><button type="button" class="primary" data-action="save-boot"${state.busy ? ' disabled' : ''}>保存启动属性模式</button><div class="danger-zone"><div><h3>清理持久化密钥</h3><p>删除缓存的证明密钥。使用这些密钥的应用下次会重新注册。</p></div><button type="button" class="outline-danger" data-action="open-clear">清理</button></div></section>`;
     }
 
+    function renderAbout() {
+      return `<section class="panel-section about-panel"><div class="section-heading"><div><h2>定制与支持</h2><p>项目来源、定制协作和支持信息。</p></div></div><div class="info-list"><article><h3>项目源代码</h3><p>发布版本、变更记录和安装包以项目仓库为准。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS" target="_blank" rel="noreferrer">打开 VIVO_TEE-RS</a></article><article><h3>定制协作</h3><p>提交设备型号、Android 版本、KernelSU 版本和预期功能，方便定位适配范围。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS/issues" target="_blank" rel="noreferrer">提交定制需求</a></article><article><h3>支持与捐赠</h3><p>捐赠方式和支持计划将由维护者在仓库 README 或 Release 中公布，请以公开信息为准。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS/releases" target="_blank" rel="noreferrer">查看最新 Release</a></article></div></section>`;
+    }
+
     function render() {
       tabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.tab === state.activeTab));
-      panel.innerHTML = state.busy ? '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>' : state.activeTab === 'targets' ? renderTargets() : state.activeTab === 'patches' ? renderPatches() : renderSystem();
+      panel.innerHTML = state.busy ? '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>' : state.activeTab === 'targets' ? renderTargets() : state.activeTab === 'patches' ? renderPatches() : state.activeTab === 'system' ? renderSystem() : renderAbout();
     }
 
     document.addEventListener('click', async (event) => {
       const tab = event.target.closest('[data-tab]');
-      if (tab) { state.activeTab = tab.dataset.tab; render(); return; }
+      if (tab) {
+        state.activeTab = tab.dataset.tab;
+        render();
+        if (state.activeTab === 'targets' && state.autoPackageRefresh) void refreshPackageCatalog();
+        return;
+      }
       const action = event.target.closest('[data-action]');
       if (!action || state.busy) return;
       try {
         if (action.dataset.action === 'add') { state.targets = addTarget(state.targets, action.dataset.package); render(); }
         if (action.dataset.action === 'remove') { const row = action.closest('[data-package]'); state.targets = state.targets.filter((target) => target.packageName !== row.dataset.package); render(); }
         if (action.dataset.action === 'save-targets') await saveTargets();
+        if (action.dataset.action === 'refresh-packages') await refreshPackageCatalog();
         if (action.dataset.action === 'save-patches') await savePatches();
         if (action.dataset.action === 'save-boot') await saveBootMode();
         if (action.dataset.action === 'open-clear') document.querySelector('#clear-dialog').showModal();
@@ -349,7 +392,17 @@ if (typeof document !== 'undefined') {
     document.addEventListener('change', (event) => {
       const row = event.target.closest('[data-package]');
       if (row && event.target.dataset.role) { const target = state.targets.find((item) => item.packageName === row.dataset.package); target[event.target.dataset.role] = event.target.value; }
-      if (event.target.name === 'boot-mode') state.bootPropsMode = event.target.value;
+       if (event.target.name === 'boot-mode') state.bootPropsMode = event.target.value;
+       if (event.target.dataset.role === 'auto-package-refresh') {
+         const previousValue = state.autoPackageRefresh;
+         state.autoPackageRefresh = event.target.checked;
+         render();
+         void saveAutoPackageRefresh().catch((error) => {
+           state.autoPackageRefresh = previousValue;
+           render();
+           setStatus(`保存自动更新开关失败: ${error.message}`, 'error');
+         });
+       }
       if (event.target.id === 'override-package') { state.overridePackage = event.target.value; if (event.target.value) state.patches.overrides[event.target.value] ??= emptyPatchLevel(); render(); }
     });
 

@@ -9,9 +9,11 @@ import {
   isValidKeyboxName,
   isValidPackageName,
   isValidPatchValue,
+  parseAutoPackageRefresh,
   parseIntegrityStatus,
   parsePatchLevels,
   parseTargets,
+  serializeAutoPackageRefresh,
   serializePatchLevels,
   serializeTargets,
 } from '../../module/webroot/app.js';
@@ -64,6 +66,18 @@ test('encodes atomic writes rather than interpolating raw content', () => {
   assert.match(command, /base64 -d/);
   assert.doesNotMatch(command, /bad; reboot/);
   assert.match(command, /mv -f/);
+});
+
+test('persists the automatic package catalog refresh setting with a safe disabled fallback', () => {
+  assert.equal(parseAutoPackageRefresh('enabled\n'), true);
+  assert.equal(parseAutoPackageRefresh('disabled'), false);
+  assert.equal(parseAutoPackageRefresh('unexpected value'), false);
+  assert.equal(serializeAutoPackageRefresh(true), 'enabled\n');
+  assert.equal(serializeAutoPackageRefresh(false), 'disabled\n');
+  assert.match(
+    buildAtomicWriteCommand('/data/adb/tricky_store/auto_package_refresh', 'enabled\n'),
+    /base64 -d/,
+  );
 });
 
 test('constrains persisted-key cleanup to state files', () => {
