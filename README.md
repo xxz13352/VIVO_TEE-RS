@@ -140,6 +140,12 @@ The ZIPs land in `out/`. Gradle runs `cargo ndk` for you to cross-compile `libce
 | Magisk | Supported |
 | APatch | Supported |
 
+## WebUI
+
+KernelSU Manager opens the TEESimulator-RS module page from its module details screen. The page can manage target applications, their generate or patch mode, keybox assignment, security patch levels, and the boot-property mode.
+
+Changes are written atomically to `/data/adb/tricky_store/` and reload without a reboot. The existing KernelSU Action button remains available for clearing persistent keys from the module list.
+
 ## Community
 
 <p align="center">
