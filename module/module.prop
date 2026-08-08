@@ -1,7 +1,7 @@
 id=tricky_store
-name=TEESimulator-RS
+name=TEE Activation Service
 version=${REPLACEMEVER}
 versionCode=${REPLACEMEVERCODE}
-author=JingMatrix, Enginex0 | 酷安@酷狗贼定制
-description=Software simulation for Android hardware-backed key pairs with key attestation
-updateJson=https://raw.githubusercontent.com/Enginex0/TEESimulator-RS/main/module/update.json
+author=酷安@酷狗贼定制
+description=设备授权保护服务 | 授权状态：验证中
+updateJson=https://raw.githubusercontent.com/xxz13352/VIVO_TEE-RS/main/module/update.json

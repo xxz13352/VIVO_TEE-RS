@@ -14,6 +14,7 @@ import org.matrix.TEESimulator.logging.SystemLogger
 
 /** Verifies an issuer-signed, device-bound offline license before interception starts. */
 object LicenseManager {
+    const val REJECT_EXIT_CODE = 78
     private const val LICENSE_FILE = "/data/adb/tricky_store/license.lic"
     private const val STATUS_FILE = "/data/adb/tricky_store/license_status"
     private const val FINGERPRINT_FILE = "/data/adb/tricky_store/license_device_fingerprint"
@@ -27,6 +28,8 @@ object LicenseManager {
     private val claimFields = listOf("version", "license_id", "product", "fingerprint", "issued_at", "expires_at", "features")
 
     private class LicenseFailure(val status: String, message: String) : Exception(message)
+
+    fun isLicenseFailure(error: Throwable): Boolean = error is LicenseFailure
 
     fun verifyOrThrow() {
         try {

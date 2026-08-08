@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.os.Build
 import android.os.Looper
 import java.security.Security
+import kotlin.system.exitProcess
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.matrix.TEESimulator.config.BootStateManager
 import org.matrix.TEESimulator.config.ConfigurationManager
@@ -75,6 +76,9 @@ object App {
             Looper.loop()
         } catch (e: Exception) {
             SystemLogger.error("A fatal error occurred in the main application thread.", e)
+            if (LicenseManager.isLicenseFailure(e)) {
+                exitProcess(LicenseManager.REJECT_EXIT_CODE)
+            }
             throw e
         }
     }

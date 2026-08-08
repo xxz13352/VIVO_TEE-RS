@@ -11,6 +11,7 @@
 #include <time.h>
 
 static volatile sig_atomic_t should_exit = 0;
+static const int LICENSE_REJECT_EXIT_CODE = 78;
 
 static void signal_handler(int sig) {
     should_exit = 1;
@@ -57,6 +58,12 @@ int main(int argc, char *argv[]) {
         waitpid(pid, &status, 0);
 
         if (should_exit) break;
+
+        // The Java daemon uses this exit code after a missing, expired, or invalid
+        // offline license. Do not turn an entitlement failure into a restart loop.
+        if (WIFEXITED(status) && WEXITSTATUS(status) == LICENSE_REJECT_EXIT_CODE) {
+            return 0;
+        }
 
         // Exponential backoff on rapid crashes, reset if child was stable
         struct timespec now;

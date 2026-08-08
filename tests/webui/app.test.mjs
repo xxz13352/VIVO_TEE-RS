@@ -163,3 +163,26 @@ test('integrity verifier accepts safe relative manifest paths', async () => {
 
   assert.match(verifier, /case "\$relative_path" in\s+""\|\/\*|\.\.\/\*|\*\/\.\.\/\*|\*\/\.\.\)/);
 });
+
+test('module metadata exposes activation state without source links and stops unauthorized restarts', async () => {
+  const [metadata, service, supervisor, app, webui, index, update] = await Promise.all([
+    readFile(new URL('../../module/module.prop', import.meta.url), 'utf8'),
+    readFile(new URL('../../module/service.sh', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/src/main/cpp/supervisor.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/src/main/java/org/matrix/TEESimulator/App.kt', import.meta.url), 'utf8'),
+    readFile(new URL('../../module/webroot/app.js', import.meta.url), 'utf8'),
+    readFile(new URL('../../module/webroot/index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../../module/update.json', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(metadata, /授权状态：验证中/);
+  assert.doesNotMatch(metadata, /JingMatrix|Enginex0|github\.com/);
+  assert.match(service, /update_module_status/);
+  assert.match(service, /license_status/);
+  assert.match(supervisor, /LICENSE_REJECT_EXIT_CODE/);
+  assert.match(supervisor, /WEXITSTATUS\(status\) == LICENSE_REJECT_EXIT_CODE/);
+  assert.match(app, /exitProcess\(LicenseManager\.REJECT_EXIT_CODE\)/);
+  assert.doesNotMatch(webui, /项目源代码|VIVO_TEE-RS|定制协作/);
+  assert.doesNotMatch(index, /TEESimulator-RS/);
+  assert.doesNotMatch(update, /Enginex0/);
+});
