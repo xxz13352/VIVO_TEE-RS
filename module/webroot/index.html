@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>TEESimulator-RS</title>
+    <link rel="stylesheet" href="./app.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">KernelSU Module</p>
+          <h1>TEESimulator-RS</h1>
+          <p id="module-id" class="module-id"></p>
+        </div>
+        <button id="refresh-button" class="icon-button" type="button" aria-label="刷新配置">Refresh</button>
+      </header>
+      <nav class="tabs" aria-label="配置分区">
+        <button class="tab is-active" type="button" data-tab="targets">目标应用</button>
+        <button class="tab" type="button" data-tab="patches">安全补丁</button>
+        <button class="tab" type="button" data-tab="system">系统</button>
+      </nav>
+      <p id="status" class="status" role="status" aria-live="polite">正在加载配置</p>
+      <div id="panel"></div>
+    </main>
+    <dialog id="clear-dialog">
+      <form method="dialog">
+        <h2>清理持久化密钥</h2>
+        <p>此操作会删除缓存的证明密钥。相关应用会在下次使用时重新注册。</p>
+        <div class="dialog-actions">
+          <button type="button" data-action="cancel-clear">取消</button>
+          <button type="button" class="outline-danger" data-action="confirm-clear">确认清理</button>
+        </div>
+      </form>
+    </dialog>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

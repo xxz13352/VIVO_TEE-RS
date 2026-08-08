@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { access } from 'node:fs/promises';
 
 import {
   buildAtomicWriteCommand,
   buildClearPersistedKeysCommand,
+  addTarget,
+  isValidKeyboxName,
+  isValidPackageName,
+  isValidPatchValue,
   parsePatchLevels,
   parseTargets,
   serializePatchLevels,
@@ -67,4 +72,24 @@ test('constrains persisted-key cleanup to state files', () => {
   assert.match(command, /-name '\*\.bin'/);
   assert.match(command, /-name '\*\.tmp'/);
   assert.doesNotMatch(command, /rm -rf/);
+});
+
+test('rejects shell-sensitive configuration values', () => {
+  assert.equal(isValidPackageName('com.example.app'), true);
+  assert.equal(isValidPackageName('com.example.app;id'), false);
+  assert.equal(isValidKeyboxName('alternate.xml'), true);
+  assert.equal(isValidKeyboxName('../alternate.xml'), false);
+  assert.equal(isValidPatchValue('2025-01-05'), true);
+  assert.equal(isValidPatchValue('$(reboot)'), false);
+});
+
+test('adding an existing package leaves targets unchanged', () => {
+  const current = [{ packageName: 'com.example.app', mode: 'patch', keybox: 'keybox.xml' }];
+  assert.deepEqual(addTarget(current, 'com.example.app'), current);
+});
+
+test('module contains every KernelSU WebUI runtime asset', async () => {
+  for (const file of ['index.html', 'app.css', 'app.js', 'kernelsu.js']) {
+    await access(new URL(`../../module/webroot/${file}`, import.meta.url));
+  }
 });
