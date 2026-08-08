@@ -77,6 +77,11 @@ h3 { font-size: 1rem; }
 .segmented input { position: absolute; opacity: 0; }
 .segmented label span { display: grid; place-items: center; }
 .segmented input:checked + span { background: var(--surface-raised); color: var(--accent-strong); box-shadow: 0 1px 4px rgb(0 0 0 / 0.1); }
+.integrity-status { margin-top: 20px; padding: 14px; border: 1px solid var(--line); border-radius: 9px; }
+.integrity-status p { margin-top: 3px; color: var(--muted); }
+.integrity-status.verified { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.integrity-status.modified { border-color: var(--danger); }
+.integrity-status.modified strong { color: var(--danger); }
 .danger-zone { align-items: center; gap: 24px; margin-top: 32px; padding-top: 22px; border-top: 1px solid var(--line); }
 dialog { width: min(calc(100% - 32px), 420px); border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); color: var(--text); box-shadow: 0 24px 80px rgb(0 0 0 / 0.25); padding: 24px; }
 dialog::backdrop { background: rgb(0 0 0 / 0.4); }

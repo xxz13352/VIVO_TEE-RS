@@ -1,5 +1,13 @@
 MODDIR=${0%/*}
+CONFIG_DIR=/data/adb/tricky_store
 cd $MODDIR
+
+if [ -f "$MODDIR/verify_integrity.sh" ]; then
+  sh "$MODDIR/verify_integrity.sh" "$MODDIR" "$CONFIG_DIR/module_integrity_status"
+else
+  mkdir -p "$CONFIG_DIR"
+  printf '%s\n' unavailable > "$CONFIG_DIR/module_integrity_status"
+fi
 
 # Fork-based supervisor for instant restart
 ./supervisor ./daemon "$MODDIR" &

@@ -49,9 +49,21 @@ install_file() {
 
 # --- Installation ---
 ui_print "- Extracting module files"
-for file in customize.sh module.prop service.sh sepolicy.rule daemon action.sh action_i18n.sh uninstall.sh; do
+for file in customize.sh module.prop service.sh verify_integrity.sh sepolicy.rule daemon action.sh action_i18n.sh uninstall.sh; do
   install_file "$file" "$MODPATH"
 done
+install_file "integrity.sha256" "$MODPATH"
+
+# KernelSU discovers a module WebUI only when webroot/index.html is present in
+# the installed module directory. SKIPUNZIP requires preserving this directory
+# explicitly instead of using the flattened install_file helper.
+if ! unzip -oq "$ZIPFILE" "webroot/*" -d "$MODPATH"; then
+  abort "! Failed to extract KernelSU WebUI"
+fi
+if [ ! -f "$MODPATH/webroot/index.html" ]; then
+  abort "! KernelSU WebUI entry is missing"
+fi
+ui_print "- KernelSU WebUI installed"
 
 # Handle service.apk or classes.dex
 if unzip -l "$ZIPFILE" | grep -q "service.apk"; then
@@ -63,6 +75,7 @@ else
 fi
 
 chmod 755 "$MODPATH/daemon"
+chmod 755 "$MODPATH/verify_integrity.sh"
 ui_print ""
 
 ui_print "- Extracting $ARCH libraries"

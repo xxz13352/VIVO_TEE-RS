@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 
 import {
   buildAtomicWriteCommand,
@@ -9,6 +9,7 @@ import {
   isValidKeyboxName,
   isValidPackageName,
   isValidPatchValue,
+  parseIntegrityStatus,
   parsePatchLevels,
   parseTargets,
   serializePatchLevels,
@@ -92,4 +93,33 @@ test('module contains every KernelSU WebUI runtime asset', async () => {
   for (const file of ['index.html', 'app.css', 'app.js', 'kernelsu.js']) {
     await access(new URL(`../../module/webroot/${file}`, import.meta.url));
   }
+});
+
+test('installer preserves KernelSU WebUI files when SKIPUNZIP is enabled', async () => {
+  const installer = await readFile(new URL('../../module/customize.sh', import.meta.url), 'utf8');
+
+  assert.match(installer, /unzip -oq "\$ZIPFILE" "webroot\/\*" -d "\$MODPATH"/);
+  assert.match(installer, /\[ ! -f "\$MODPATH\/webroot\/index\.html" \]/);
+  assert.match(installer, /install_file "integrity\.sha256" "\$MODPATH"/);
+});
+
+test('normalizes module integrity status from the boot verifier', () => {
+  assert.equal(parseIntegrityStatus('verified\n'), 'verified');
+  assert.equal(parseIntegrityStatus('modified'), 'modified');
+  assert.equal(parseIntegrityStatus('missing'), 'unavailable');
+});
+
+test('packaging defines an integrity manifest for module metadata and WebUI assets', async () => {
+  const buildScript = await readFile(new URL('../../app/build.gradle.kts', import.meta.url), 'utf8');
+
+  assert.match(buildScript, /integrity\.sha256/);
+  for (const path of ['module.prop', 'service.sh', 'customize.sh', 'webroot/index.html', 'webroot/app.css', 'webroot/app.js', 'webroot/kernelsu.js']) {
+    assert.match(buildScript, new RegExp(`"${path.replace('.', '\\.')}"`));
+  }
+});
+
+test('integrity verifier accepts safe relative manifest paths', async () => {
+  const verifier = await readFile(new URL('../../module/verify_integrity.sh', import.meta.url), 'utf8');
+
+  assert.match(verifier, /case "\$relative_path" in\s+""\|\/\*|\.\.\/\*|\*\/\.\.\/\*|\*\/\.\.\)/);
 });

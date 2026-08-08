@@ -50,6 +50,11 @@ export function isValidPatchValue(value) {
   );
 }
 
+export function parseIntegrityStatus(value) {
+  const status = String(value).trim();
+  return ['verified', 'modified'].includes(status) ? status : 'unavailable';
+}
+
 export function parseTargets(text) {
   const targets = [];
   let currentKeybox = DEFAULT_KEYBOX;
@@ -200,6 +205,7 @@ if (typeof document !== 'undefined') {
       patches: { global: emptyPatchLevel(), overrides: {} },
       targets: [],
       bootPropsMode: 'auto',
+      integrityStatus: 'unavailable',
       query: '',
       overridePackage: '',
     };
@@ -228,15 +234,17 @@ if (typeof document !== 'undefined') {
       state.busy = true;
       render();
       try {
-        const [targets, patches, bootMode, keyboxOutput] = await Promise.all([
+        const [targets, patches, bootMode, keyboxOutput, integrityStatus] = await Promise.all([
           readFile(`${CONFIG_DIR}/target.txt`),
           readFile(`${CONFIG_DIR}/security_patch.txt`),
           readFile(`${CONFIG_DIR}/boot_props_mode`),
           exec(`find '${CONFIG_DIR}' -maxdepth 1 -type f -name '*.xml' -printf '%f\\n'`),
+          readFile(`${CONFIG_DIR}/module_integrity_status`),
         ]);
         state.targets = parseTargets(targets);
         state.patches = parsePatchLevels(patches);
         state.bootPropsMode = ['auto', 'force', 'disable'].includes(bootMode.trim()) ? bootMode.trim() : 'auto';
+        state.integrityStatus = parseIntegrityStatus(integrityStatus);
         if (keyboxOutput.errno !== 0) throw new Error(keyboxOutput.stderr || 'Could not list keyboxes');
         state.keyboxes = [...new Set([DEFAULT_KEYBOX, ...keyboxOutput.stdout.split(/\r?\n/).filter(isValidKeyboxName)])].sort();
         const packageNames = listPackages('user');
@@ -304,7 +312,12 @@ if (typeof document !== 'undefined') {
     }
 
     function renderSystem() {
-      return `<section class="panel-section"><div class="section-heading"><div><h2>系统设置</h2><p>修改启动状态属性和持久化证明密钥。</p></div></div><fieldset class="segmented"><legend>Boot props mode</legend>${['auto', 'force', 'disable'].map((mode) => `<label><input type="radio" name="boot-mode" value="${mode}"${state.bootPropsMode === mode ? ' checked' : ''}><span>${mode}</span></label>`).join('')}</fieldset><button type="button" class="primary" data-action="save-boot"${state.busy ? ' disabled' : ''}>保存启动属性模式</button><div class="danger-zone"><div><h3>清理持久化密钥</h3><p>删除缓存的证明密钥。使用这些密钥的应用下次会重新注册。</p></div><button type="button" class="outline-danger" data-action="open-clear">清理</button></div></section>`;
+      const integrity = state.integrityStatus === 'verified'
+        ? '<div class="integrity-status verified"><strong>模块完整性已验证</strong><p>当前安装内容与构建清单一致。</p></div>'
+        : state.integrityStatus === 'modified'
+          ? '<div class="integrity-status modified" role="alert"><strong>检测到模块文件被修改</strong><p>module.prop 或核心运行文件与官方构建清单不一致。</p></div>'
+          : '<div class="integrity-status unavailable"><strong>模块完整性未验证</strong><p>尚未读取到启动校验结果。</p></div>';
+      return `<section class="panel-section"><div class="section-heading"><div><h2>系统设置</h2><p>修改启动状态属性和持久化证明密钥。</p></div></div>${integrity}<fieldset class="segmented"><legend>Boot props mode</legend>${['auto', 'force', 'disable'].map((mode) => `<label><input type="radio" name="boot-mode" value="${mode}"${state.bootPropsMode === mode ? ' checked' : ''}><span>${mode}</span></label>`).join('')}</fieldset><button type="button" class="primary" data-action="save-boot"${state.busy ? ' disabled' : ''}>保存启动属性模式</button><div class="danger-zone"><div><h3>清理持久化密钥</h3><p>删除缓存的证明密钥。使用这些密钥的应用下次会重新注册。</p></div><button type="button" class="outline-danger" data-action="open-clear">清理</button></div></section>`;
     }
 
     function render() {

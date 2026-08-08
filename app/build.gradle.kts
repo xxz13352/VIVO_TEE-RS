@@ -1,5 +1,6 @@
 import com.android.build.api.artifact.SingleArtifact
 import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 import javax.inject.Inject
 import org.gradle.process.ExecOperations
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -38,6 +39,19 @@ val gitCommitCount =
     gitExecutor.execute("git rev-list HEAD --count", rootDir).toInt() + versionCodeFloorOffset
 val gitCommitHash = gitExecutor.execute("git rev-parse --verify --short HEAD", rootDir)
 val verName = "v6.0.1"
+
+fun sha256(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+}
 
 android {
     namespace = "org.matrix.TEESimulator"
@@ -240,6 +254,30 @@ androidComponents {
                                     "\nallow platform_app media_rw_data_file { dir file } *\n",
                             )
                     }
+                }
+
+                doLast {
+                    val stagedModule = tempModuleDir.get().asFile
+                    val protectedPaths =
+                        listOf(
+                            "module.prop",
+                            "service.sh",
+                            "customize.sh",
+                            "verify_integrity.sh",
+                            "webroot/index.html",
+                            "webroot/app.css",
+                            "webroot/app.js",
+                            "webroot/kernelsu.js",
+                        )
+                    val entries =
+                        protectedPaths.map { relativePath ->
+                            val stagedFile = stagedModule.resolve(relativePath)
+                            check(stagedFile.isFile) {
+                                "Missing integrity-protected module file: $relativePath"
+                            }
+                            "${sha256(stagedFile)}  $relativePath"
+                        }
+                    stagedModule.resolve("integrity.sha256").writeText(entries.joinToString("\n", postfix = "\n"))
                 }
             }
 
