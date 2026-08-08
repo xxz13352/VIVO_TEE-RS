@@ -150,12 +150,14 @@ Changes are written atomically to `/data/adb/tricky_store/` and reload without a
 
 The module can use an offline, device-bound donation license. The issuer private key stays on the maintainer's signing machine; the module contains only the Ed25519 public key. At startup it verifies the signature, validity window, and the 52-byte ASCII identity beginning with `01ce` in `/dev/block/by-name/backup` before attaching keystore interceptors.
 
-Create an issuer keypair once:
+The module public key is compiled into the verifier. Keep the matching issuer private key on the signing machine and never distribute it. For a new signing key, rebuild the module with its replacement public key first.
+
+Create an issuer keypair only when setting up a new module signing key:
 
 ```bash
 python tools/license_issuer.py init \
   --private-key ~/.teesimulator-rs/license-private.pem \
-  --public-key module/license_public_key
+  --public-key ~/.teesimulator-rs/license-public.hex
 ```
 
 When the module has no valid license, the WebUI shows a 64-character device SHA-256 fingerprint. Generate its activation code locally without contacting a server:

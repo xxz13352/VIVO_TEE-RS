@@ -18,13 +18,15 @@ object LicenseManager {
     private const val LICENSE_FILE = "/data/adb/tricky_store/license.lic"
     private const val STATUS_FILE = "/data/adb/tricky_store/license_status"
     private const val FINGERPRINT_FILE = "/data/adb/tricky_store/license_device_fingerprint"
-    private const val PUBLIC_KEY_FILE = "/data/adb/modules/tricky_store/license_public_key"
+    private const val LAST_SEEN_FILE = "/data/adb/tricky_store/license_last_seen"
     private const val BACKUP_PARTITION = "/dev/block/by-name/backup"
     private const val FORMAT = "TEERS-LICENSE-1"
     private const val PRODUCT = "TEESimulator-RS"
     private const val FINGERPRINT_DOMAIN = "TEESimulator-RS/v1\n"
     private const val EMMCID_LENGTH = 52
     private const val MAX_BACKUP_BYTES = 16 * 1024 * 1024
+    private const val CLOCK_ROLLBACK_TOLERANCE_SECONDS = 300L
+    private const val EMBEDDED_PUBLIC_KEY_HEX = "20f74d84bda2dd1a29aa1fe7c62540e5e1b12321ccc3c43957f626ed45c434a1"
     private val claimFields = listOf("version", "license_id", "product", "fingerprint", "issued_at", "expires_at", "features")
 
     private class LicenseFailure(val status: String, message: String) : Exception(message)
@@ -114,11 +116,7 @@ object LicenseManager {
     }
 
     private fun readPublicKey(): PublicKey {
-        val hex = File(PUBLIC_KEY_FILE).readText(Charsets.US_ASCII).trim()
-        if (!hex.matches(Regex("[0-9a-fA-F]{64}"))) {
-            throw LicenseFailure("invalid_key", "module public key is invalid")
-        }
-        val raw = hexToBytes(hex)
+        val raw = hexToBytes(EMBEDDED_PUBLIC_KEY_HEX)
         val info = SubjectPublicKeyInfo(AlgorithmIdentifier(EdECObjectIdentifiers.id_Ed25519), raw)
         return KeyFactory.getInstance("Ed25519", "BC").generatePublic(X509EncodedKeySpec(info.encoded))
     }
@@ -141,9 +139,24 @@ object LicenseManager {
         if (expires <= issued || now < issued - 300 || now > expires + 300) {
             throw LicenseFailure("expired", "license is outside its validity window")
         }
+        validateClock(now)
         if (!values.getValue("features").matches(Regex("[a-z0-9]+(?:,[a-z0-9]+)*"))) {
             throw LicenseFailure("invalid_format", "license features are invalid")
         }
+    }
+
+    private fun validateClock(now: Long) {
+        val lastSeenFile = File(LAST_SEEN_FILE)
+        val lastSeen = if (lastSeenFile.isFile) {
+            lastSeenFile.readText(Charsets.US_ASCII).trim().toLongOrNull()
+                ?: throw LicenseFailure("clock_rollback", "saved license clock state is invalid")
+        } else {
+            null
+        }
+        if (lastSeen != null && now + CLOCK_ROLLBACK_TOLERANCE_SECONDS < lastSeen) {
+            throw LicenseFailure("clock_rollback", "system time is earlier than the last verified license time")
+        }
+        if (lastSeen == null || now > lastSeen) writeStateFile(LAST_SEEN_FILE, now.toString())
     }
 
     private fun readEmmcIdCandidate(): String {

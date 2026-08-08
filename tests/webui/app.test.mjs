@@ -114,11 +114,19 @@ test('module contains every runtime asset required by WebUI and license verifica
   for (const file of ['index.html', 'app.css', 'app.js', 'kernelsu.js']) {
     await access(new URL(`../../module/webroot/${file}`, import.meta.url));
   }
-  await access(new URL('../../module/license_public_key', import.meta.url));
+  const verifier = await readFile(
+    new URL('../../app/src/main/java/org/matrix/TEESimulator/config/LicenseManager.kt', import.meta.url),
+    'utf8',
+  );
+  assert.match(verifier, /EMBEDDED_PUBLIC_KEY_HEX/);
+  assert.match(verifier, /LAST_SEEN_FILE/);
+  assert.match(verifier, /clock_rollback/);
+  assert.doesNotMatch(verifier, /PUBLIC_KEY_FILE/);
 });
 
 test('summarizes offline license state without exposing the signature as metadata', () => {
   assert.equal(parseLicenseStatus('verified\n'), 'verified');
+  assert.equal(parseLicenseStatus('clock_rollback'), 'clock_rollback');
   assert.equal(parseLicenseStatus('tampered'), 'unavailable');
   assert.deepEqual(
     parseLicenseSummary('TEERS-LICENSE-1\nlicense_id=abc\nfingerprint=deadbeef\nsignature=secret\n'),
@@ -139,8 +147,7 @@ test('installer preserves KernelSU WebUI files when SKIPUNZIP is enabled', async
   assert.match(installer, /unzip -oq "\$ZIPFILE" "webroot\/\*" -d "\$MODPATH"/);
   assert.match(installer, /\[ ! -f "\$MODPATH\/webroot\/index\.html" \]/);
   assert.match(installer, /install_file "integrity\.sha256" "\$MODPATH"/);
-  assert.match(installer, /for file in [^\n]*license_public_key/);
-  assert.match(installer, /chmod 644 "\$MODPATH\/license_public_key"/);
+  assert.doesNotMatch(installer, /license_public_key/);
 });
 
 test('normalizes module integrity status from the boot verifier', () => {
@@ -153,7 +160,7 @@ test('packaging defines an integrity manifest for module metadata and WebUI asse
   const buildScript = await readFile(new URL('../../app/build.gradle.kts', import.meta.url), 'utf8');
 
   assert.match(buildScript, /integrity\.sha256/);
-  for (const path of ['module.prop', 'service.sh', 'customize.sh', 'verify_integrity.sh', 'license_public_key', 'webroot/index.html', 'webroot/app.css', 'webroot/app.js', 'webroot/kernelsu.js']) {
+  for (const path of ['module.prop', 'service.sh', 'customize.sh', 'verify_integrity.sh', 'webroot/index.html', 'webroot/app.css', 'webroot/app.js', 'webroot/kernelsu.js']) {
     assert.match(buildScript, new RegExp(`"${path.replace('.', '\\.')}"`));
   }
 });

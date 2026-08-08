@@ -68,7 +68,7 @@ export function serializeAutoPackageRefresh(enabled) {
 
 export function parseLicenseStatus(value) {
   const status = String(value).trim();
-  return ['verified', 'missing', 'expired', 'device_mismatch', 'invalid_signature', 'invalid_format', 'invalid_product', 'invalid_key'].includes(status)
+  return ['verified', 'missing', 'expired', 'device_mismatch', 'invalid_signature', 'invalid_format', 'invalid_product', 'invalid_key', 'clock_rollback'].includes(status)
     ? status
     : 'unavailable';
 }
@@ -396,7 +396,7 @@ if (typeof document !== 'undefined') {
 
     function renderAbout() {
       const summary = parseLicenseSummary(state.licenseText);
-      const statusLabels = { verified: '已验证', missing: '未导入', expired: '已过期', device_mismatch: '设备不匹配', invalid_signature: '签名无效', invalid_format: '格式无效', invalid_product: '产品不匹配', invalid_key: '公钥无效', unavailable: '等待模块验证' };
+      const statusLabels = { verified: '已验证', missing: '未导入', expired: '已过期', device_mismatch: '设备不匹配', invalid_signature: '签名无效', invalid_format: '格式无效', invalid_product: '产品不匹配', invalid_key: '公钥无效', clock_rollback: '系统时间回退', unavailable: '等待模块验证' };
       const status = statusLabels[state.licenseStatus] || statusLabels.unavailable;
       const statusClass = state.licenseStatus === 'verified' ? 'verified' : state.licenseStatus === 'missing' ? 'unavailable' : 'modified';
       const activationRequest = state.licenseStatus === 'verified' ? '' : `<label class="field"><span>设备指纹（SHA-256）</span><input value="${escapeHtml(state.deviceFingerprint || '模块尚未读取到 backup 身份')}" readonly></label>`;

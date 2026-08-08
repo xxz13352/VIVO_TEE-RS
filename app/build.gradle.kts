@@ -264,7 +264,6 @@ androidComponents {
                             "service.sh",
                             "customize.sh",
                             "verify_integrity.sh",
-                            "license_public_key",
                             "webroot/index.html",
                             "webroot/app.css",
                             "webroot/app.js",

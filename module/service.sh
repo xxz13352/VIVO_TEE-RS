@@ -20,6 +20,7 @@ update_module_status() {
     expired) label='已过期' ;;
     device_mismatch) label='设备不匹配' ;;
     invalid_signature|invalid_format|invalid_product|invalid_key) label='激活码无效' ;;
+    clock_rollback) label='时钟回退' ;;
     unavailable) label='验证失败' ;;
     *) label='验证中' ;;
   esac
