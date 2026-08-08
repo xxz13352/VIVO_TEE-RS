@@ -49,7 +49,7 @@ install_file() {
 
 # --- Installation ---
 ui_print "- Extracting module files"
-for file in customize.sh module.prop service.sh verify_integrity.sh sepolicy.rule daemon action.sh action_i18n.sh uninstall.sh; do
+for file in customize.sh module.prop service.sh verify_integrity.sh license_public_key sepolicy.rule daemon action.sh action_i18n.sh uninstall.sh; do
   install_file "$file" "$MODPATH"
 done
 install_file "integrity.sha256" "$MODPATH"
@@ -76,6 +76,7 @@ fi
 
 chmod 755 "$MODPATH/daemon"
 chmod 755 "$MODPATH/verify_integrity.sh"
+chmod 644 "$MODPATH/license_public_key"
 ui_print ""
 
 ui_print "- Extracting $ARCH libraries"

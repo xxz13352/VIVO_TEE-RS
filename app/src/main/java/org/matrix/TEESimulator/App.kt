@@ -10,6 +10,7 @@ import java.security.Security
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.matrix.TEESimulator.config.BootStateManager
 import org.matrix.TEESimulator.config.ConfigurationManager
+import org.matrix.TEESimulator.config.LicenseManager
 import org.matrix.TEESimulator.interception.keystore.AbstractKeystoreInterceptor
 import org.matrix.TEESimulator.interception.keystore.Keystore2Interceptor
 import org.matrix.TEESimulator.interception.keystore.KeystoreInterceptor
@@ -42,6 +43,14 @@ object App {
         try {
             val systemContext = prepareEnvironment()
 
+            // Install the full provider before the offline license verifier uses Ed25519.
+            Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
+            Security.addProvider(BouncyCastleProvider())
+
+            // Reject the process before any keystore hook is attached when the signed license is
+            // missing, expired, signed by another issuer, or bound to another backup identity.
+            LicenseManager.verifyOrThrow()
+
             // Spoof boot-state props before any hook attaches, so keystore2's
             // cached snapshot reflects the spoofed values.
             BootStateManager.apply()
@@ -54,12 +63,6 @@ object App {
 
             // Set up the device's boot key and hash, which are crucial for attestation.
             AndroidDeviceUtils.setupBootKeyAndHash()
-
-            // Android ships with a stripped-down Bouncy Castle provider under the name "BC".
-            // We must remove the system provider first to ensure the full Bouncy Castle library
-            // (packaged with the app) is used.
-            Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
-            Security.addProvider(BouncyCastleProvider())
 
             NativeCertGen.initialize("/data/adb/modules/tricky_store/libcertgen.so")
 

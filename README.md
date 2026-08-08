@@ -146,6 +146,30 @@ KernelSU Manager opens the TEESimulator-RS module page from its module details s
 
 Changes are written atomically to `/data/adb/tricky_store/` and reload without a reboot. The existing KernelSU Action button remains available for clearing persistent keys from the module list.
 
+### Offline donation license
+
+The module can use an offline, device-bound donation license. The issuer private key stays on the maintainer's signing machine; the module contains only the Ed25519 public key. At startup it verifies the signature, validity window, and the 52-byte ASCII identity beginning with `01ce` in `/dev/block/by-name/backup` before attaching keystore interceptors.
+
+Create an issuer keypair once:
+
+```bash
+python tools/license_issuer.py init \
+  --private-key ~/.teesimulator-rs/license-private.pem \
+  --public-key module/license_public_key
+```
+
+Issue a license from the candidate printed by `tools/extract_backup_emmcid.sh`:
+
+```bash
+python tools/license_issuer.py issue \
+  --private-key ~/.teesimulator-rs/license-private.pem \
+  --emmcid '01ce...' \
+  --out license.lic \
+  --days 365
+```
+
+Paste the complete `license.lic` into the WebUI's About tab and reboot the module. A copied license fails on a different backup identity. Root users can still patch a local verifier, so this scheme protects signed entitlement and casual resale rather than providing hardware-enforced DRM.
+
 ## Community
 
 <p align="center">

@@ -11,6 +11,8 @@ import {
   isValidPatchValue,
   parseAutoPackageRefresh,
   parseIntegrityStatus,
+  parseLicenseStatus,
+  parseLicenseSummary,
   parsePatchLevels,
   parseTargets,
   serializeAutoPackageRefresh,
@@ -78,6 +80,10 @@ test('persists the automatic package catalog refresh setting with a safe disable
     buildAtomicWriteCommand('/data/adb/tricky_store/auto_package_refresh', 'enabled\n'),
     /base64 -d/,
   );
+  assert.match(
+    buildAtomicWriteCommand('/data/adb/tricky_store/license.lic', 'TEERS-LICENSE-1\n'),
+    /base64 -d/,
+  );
 });
 
 test('constrains persisted-key cleanup to state files', () => {
@@ -103,10 +109,20 @@ test('adding an existing package leaves targets unchanged', () => {
   assert.deepEqual(addTarget(current, 'com.example.app'), current);
 });
 
-test('module contains every KernelSU WebUI runtime asset', async () => {
+test('module contains every runtime asset required by WebUI and license verification', async () => {
   for (const file of ['index.html', 'app.css', 'app.js', 'kernelsu.js']) {
     await access(new URL(`../../module/webroot/${file}`, import.meta.url));
   }
+  await access(new URL('../../module/license_public_key', import.meta.url));
+});
+
+test('summarizes offline license state without exposing the signature as metadata', () => {
+  assert.equal(parseLicenseStatus('verified\n'), 'verified');
+  assert.equal(parseLicenseStatus('tampered'), 'unavailable');
+  assert.deepEqual(
+    parseLicenseSummary('TEERS-LICENSE-1\nlicense_id=abc\nfingerprint=deadbeef\nsignature=secret\n'),
+    { license_id: 'abc', fingerprint: 'deadbeef' },
+  );
 });
 
 test('installer preserves KernelSU WebUI files when SKIPUNZIP is enabled', async () => {
@@ -115,6 +131,8 @@ test('installer preserves KernelSU WebUI files when SKIPUNZIP is enabled', async
   assert.match(installer, /unzip -oq "\$ZIPFILE" "webroot\/\*" -d "\$MODPATH"/);
   assert.match(installer, /\[ ! -f "\$MODPATH\/webroot\/index\.html" \]/);
   assert.match(installer, /install_file "integrity\.sha256" "\$MODPATH"/);
+  assert.match(installer, /for file in [^\n]*license_public_key/);
+  assert.match(installer, /chmod 644 "\$MODPATH\/license_public_key"/);
 });
 
 test('normalizes module integrity status from the boot verifier', () => {
@@ -127,7 +145,7 @@ test('packaging defines an integrity manifest for module metadata and WebUI asse
   const buildScript = await readFile(new URL('../../app/build.gradle.kts', import.meta.url), 'utf8');
 
   assert.match(buildScript, /integrity\.sha256/);
-  for (const path of ['module.prop', 'service.sh', 'customize.sh', 'webroot/index.html', 'webroot/app.css', 'webroot/app.js', 'webroot/kernelsu.js']) {
+  for (const path of ['module.prop', 'service.sh', 'customize.sh', 'verify_integrity.sh', 'license_public_key', 'webroot/index.html', 'webroot/app.css', 'webroot/app.js', 'webroot/kernelsu.js']) {
     assert.match(buildScript, new RegExp(`"${path.replace('.', '\\.')}"`));
   }
 });
