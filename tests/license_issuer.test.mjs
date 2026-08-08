@@ -88,6 +88,9 @@ test('activation issuer signs a WebUI fingerprint without network access', async
   const license = join(directory, 'activation.lic');
   const fingerprint = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
   try {
+    const script = await readFile(new URL('../tools/activation_code_issuer.sh', import.meta.url), 'utf8');
+    assert.doesNotMatch(script, /\r/);
+    assert.doesNotMatch(script, /grep -Eq/);
     assert.equal(run(['init', '--private-key', privateKey, '--public-key', publicKey]).status, 0);
     const issued = spawnSync(bashPath, [shellScriptPath, fingerprint, license, 'offline-test', '30'], {
       encoding: 'utf8',

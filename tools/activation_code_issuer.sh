@@ -17,7 +17,14 @@ OUTPUT=${2:-activation.lic}
 LICENSE_ID=${3:-offline-$(date +%Y%m%d)}
 DAYS=${4:-365}
 
-if [ "${#FINGERPRINT}" -ne 64 ] || ! printf '%s' "$FINGERPRINT" | grep -Eq '^[0-9a-f]{64}$'; then
+case "$FINGERPRINT" in
+  *[!0123456789abcdef]*|'')
+    echo "fingerprint must be exactly 64 lowercase hexadecimal characters" >&2
+    exit 2
+    ;;
+esac
+
+if [ "${#FINGERPRINT}" -ne 64 ]; then
   echo "fingerprint must be exactly 64 lowercase hexadecimal characters" >&2
   exit 2
 fi
@@ -30,14 +37,19 @@ case "$DAYS" in
 esac
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PRIVATE_KEY=${LICENSE_PRIVATE_KEY:-"$HOME/.teesimulator-rs/license-private.pem"}
+PRIVATE_KEY=${LICENSE_PRIVATE_KEY:-${HOME:-.}/.teesimulator-rs/license-private.pem}
 PYTHON_BIN=${PYTHON:-python3}
 
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1 || ! "$PYTHON_BIN" -c 'import sys' >/dev/null 2>&1; then
   PYTHON_BIN=python
 fi
 
-if [ ! -r "$PRIVATE_KEY" ]; then
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1 || ! "$PYTHON_BIN" -c 'import sys' >/dev/null 2>&1; then
+  echo "python interpreter is not available" >&2
+  exit 1
+fi
+
+if [ ! -f "$PRIVATE_KEY" ] || [ ! -r "$PRIVATE_KEY" ]; then
   echo "issuer private key is not readable: $PRIVATE_KEY" >&2
   exit 1
 fi
