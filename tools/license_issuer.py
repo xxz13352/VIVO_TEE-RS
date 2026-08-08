@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Offline Ed25519 license issuer and verifier for TEESimulator-RS.
-
-The private key is issuer-only material. The Android module only receives the
-public key and verifies the signed claims against its local backup identity.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -53,7 +47,7 @@ def fingerprint_for_emmcid(emmcid: str) -> str:
 def read_private_key(path: Path) -> Ed25519PrivateKey:
     try:
         key = serialization.load_pem_private_key(path.read_bytes(), password=None)
-    except Exception as exc:  # pragma: no cover - backend-specific error text
+    except Exception as exc:
         fail(f"could not read private key: {exc}")
     if not isinstance(key, Ed25519PrivateKey):
         fail("private key is not Ed25519")

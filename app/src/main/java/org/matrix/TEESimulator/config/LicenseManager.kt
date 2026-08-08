@@ -12,7 +12,6 @@ import org.bouncycastle.asn1.x509.AlgorithmIdentifier
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import org.matrix.TEESimulator.logging.SystemLogger
 
-/** Verifies an issuer-signed, device-bound offline license before interception starts. */
 object LicenseManager {
     const val REJECT_EXIT_CODE = 78
     private const val LICENSE_FILE = "/data/adb/tricky_store/license.lic"
@@ -25,9 +24,21 @@ object LicenseManager {
     private const val FINGERPRINT_DOMAIN = "TEESimulator-RS/v1\n"
     private const val EMMCID_LENGTH = 52
     private const val MAX_BACKUP_BYTES = 16 * 1024 * 1024
+    private const val MAX_LICENSE_BYTES = 4096
+    private const val MAX_CLOCK_STATE_BYTES = 512
     private const val CLOCK_ROLLBACK_TOLERANCE_SECONDS = 300L
-    private const val EMBEDDED_PUBLIC_KEY_HEX = "20f74d84bda2dd1a29aa1fe7c62540e5e1b12321ccc3c43957f626ed45c434a1"
-    private val claimFields = listOf("version", "license_id", "product", "fingerprint", "issued_at", "expires_at", "features")
+    private const val EMBEDDED_PUBLIC_KEY_HEX =
+        "20f74d84bda2dd1a29aa1fe7c62540e5e1b12321ccc3c43957f626ed45c434a1"
+    private val claimFields =
+        listOf(
+            "version",
+            "license_id",
+            "product",
+            "fingerprint",
+            "issued_at",
+            "expires_at",
+            "features",
+        )
 
     private class LicenseFailure(val status: String, message: String) : Exception(message)
 
@@ -40,10 +51,8 @@ object LicenseManager {
             writeFingerprint(expectedFingerprint)
             val claims = readClaims()
             verifySignature(claims.payload, claims.signature)
-            validateClaims(claims.values)
-            if (claims.values["fingerprint"] != expectedFingerprint) {
-                throw LicenseFailure("device_mismatch", "license is bound to another backup identity")
-            }
+            val now = validateClaims(claims.values, expectedFingerprint)
+            validateClock(now, claims.values.getValue("license_id"), expectedFingerprint)
             writeStatus("verified")
             SystemLogger.info("Offline license verified: ${claims.values["license_id"]}")
         } catch (failure: LicenseFailure) {
@@ -68,8 +77,20 @@ object LicenseManager {
     private fun readClaims(): ParsedLicense {
         val file = File(LICENSE_FILE)
         if (!file.isFile) throw LicenseFailure("missing", "license file is missing")
-        val lines = file.readText(Charsets.UTF_8).replace("\r\n", "\n").split('\n').dropLastWhile { it.isEmpty() }
-        if (lines.size != claimFields.size + 2 || lines.firstOrNull() != FORMAT) {
+        val raw = file.readBytes()
+        if (raw.isEmpty() || raw.size > MAX_LICENSE_BYTES) {
+            throw LicenseFailure("invalid_format", "license size is invalid")
+        }
+        val text = raw.toString(Charsets.UTF_8)
+        if ('\r' in text || !text.endsWith('\n')) {
+            throw LicenseFailure("invalid_format", "license encoding is invalid")
+        }
+        val lines = text.removeSuffix("\n").split('\n')
+        if (
+            lines.size != claimFields.size + 2 ||
+                lines.firstOrNull() != FORMAT ||
+                !lines.last().startsWith("signature=")
+        ) {
             throw LicenseFailure("invalid_format", "license header or field count is invalid")
         }
         val values = linkedMapOf<String, String>()
@@ -85,12 +106,14 @@ object LicenseManager {
             throw LicenseFailure("invalid_format", "license claims do not match the schema")
         }
         val signatureValue = lines.last().removePrefix("signature=")
-        val signature = try {
-            Base64.getUrlDecoder().decode(signatureValue)
-        } catch (error: IllegalArgumentException) {
-            throw LicenseFailure("invalid_signature", "signature is not base64url")
-        }
-        if (signature.size != 64) throw LicenseFailure("invalid_signature", "Ed25519 signature size is invalid")
+        val signature =
+            try {
+                Base64.getUrlDecoder().decode(signatureValue)
+            } catch (error: IllegalArgumentException) {
+                throw LicenseFailure("invalid_signature", "signature is not base64url")
+            }
+        if (signature.size != 64)
+            throw LicenseFailure("invalid_signature", "Ed25519 signature size is invalid")
         return ParsedLicense(values, canonicalPayload(values), signature)
     }
 
@@ -98,7 +121,8 @@ object LicenseManager {
         val payload = buildString {
             append(FORMAT).append('\n')
             for (field in claimFields) {
-                val value = values[field] ?: throw LicenseFailure("invalid_format", "missing claim: $field")
+                val value =
+                    values[field] ?: throw LicenseFailure("invalid_format", "missing claim: $field")
                 if (value.any { it == '\r' || it == '\n' || it == '=' }) {
                     throw LicenseFailure("invalid_format", "invalid character in claim: $field")
                 }
@@ -112,16 +136,18 @@ object LicenseManager {
         val verifier = Signature.getInstance("Ed25519", "BC")
         verifier.initVerify(readPublicKey())
         verifier.update(payload)
-        if (!verifier.verify(signature)) throw LicenseFailure("invalid_signature", "Ed25519 signature mismatch")
+        if (!verifier.verify(signature))
+            throw LicenseFailure("invalid_signature", "Ed25519 signature mismatch")
     }
 
     private fun readPublicKey(): PublicKey {
         val raw = hexToBytes(EMBEDDED_PUBLIC_KEY_HEX)
         val info = SubjectPublicKeyInfo(AlgorithmIdentifier(EdECObjectIdentifiers.id_Ed25519), raw)
-        return KeyFactory.getInstance("Ed25519", "BC").generatePublic(X509EncodedKeySpec(info.encoded))
+        return KeyFactory.getInstance("Ed25519", "BC")
+            .generatePublic(X509EncodedKeySpec(info.encoded))
     }
 
-    private fun validateClaims(values: Map<String, String>) {
+    private fun validateClaims(values: Map<String, String>, expectedFingerprint: String): Long {
         if (values["version"] != "1" || values["product"] != PRODUCT) {
             throw LicenseFailure("invalid_product", "license product or version is unsupported")
         }
@@ -131,57 +157,156 @@ object LicenseManager {
         if (!values.getValue("fingerprint").matches(Regex("[0-9a-f]{64}"))) {
             throw LicenseFailure("invalid_format", "license fingerprint is invalid")
         }
-        val issued = values.getValue("issued_at").toLongOrNull()
-            ?: throw LicenseFailure("invalid_format", "issued_at is invalid")
-        val expires = values.getValue("expires_at").toLongOrNull()
-            ?: throw LicenseFailure("invalid_format", "expires_at is invalid")
+        if (
+            !MessageDigest.isEqual(
+                values.getValue("fingerprint").toByteArray(Charsets.US_ASCII),
+                expectedFingerprint.toByteArray(Charsets.US_ASCII),
+            )
+        ) {
+            throw LicenseFailure("device_mismatch", "license is bound to another backup identity")
+        }
+        val issued =
+            values.getValue("issued_at").toLongOrNull()
+                ?: throw LicenseFailure("invalid_format", "issued_at is invalid")
+        val expires =
+            values.getValue("expires_at").toLongOrNull()
+                ?: throw LicenseFailure("invalid_format", "expires_at is invalid")
         val now = System.currentTimeMillis() / 1000
         if (expires <= issued || now < issued - 300 || now > expires + 300) {
             throw LicenseFailure("expired", "license is outside its validity window")
         }
-        validateClock(now)
         if (!values.getValue("features").matches(Regex("[a-z0-9]+(?:,[a-z0-9]+)*"))) {
             throw LicenseFailure("invalid_format", "license features are invalid")
         }
+        return now
     }
 
-    private fun validateClock(now: Long) {
-        val lastSeenFile = File(LAST_SEEN_FILE)
-        val lastSeen = if (lastSeenFile.isFile) {
-            lastSeenFile.readText(Charsets.US_ASCII).trim().toLongOrNull()
-                ?: throw LicenseFailure("clock_rollback", "saved license clock state is invalid")
-        } else {
-            null
-        }
+    private fun validateClock(now: Long, licenseId: String, expectedFingerprint: String) {
+        val lastSeen = readClockState(licenseId, expectedFingerprint)
         if (lastSeen != null && now + CLOCK_ROLLBACK_TOLERANCE_SECONDS < lastSeen) {
-            throw LicenseFailure("clock_rollback", "system time is earlier than the last verified license time")
+            throw LicenseFailure(
+                "clock_rollback",
+                "system time is earlier than the last verified license time",
+            )
         }
-        if (lastSeen == null || now > lastSeen) writeStateFile(LAST_SEEN_FILE, now.toString())
+        if (lastSeen == null || now > lastSeen) {
+            if (!writeStateFile(LAST_SEEN_FILE, clockRecord(now, licenseId, expectedFingerprint))) {
+                throw LicenseFailure("state_persistence", "could not persist license state")
+            }
+        }
+    }
+
+    private fun readClockState(licenseId: String, expectedFingerprint: String): Long? {
+        val file = File(LAST_SEEN_FILE)
+        if (!file.isFile) return null
+        val raw =
+            runCatching { file.readBytes() }
+                .getOrElse {
+                    throw LicenseFailure("state_persistence", "could not read license state")
+                }
+        if (raw.isEmpty() || raw.size > MAX_CLOCK_STATE_BYTES) {
+            throw LicenseFailure("state_persistence", "saved license state is invalid")
+        }
+        val text = raw.toString(Charsets.US_ASCII)
+        if (text.all { it.isDigit() } || text.trimEnd().all { it.isDigit() }) {
+            return text.trim().toLongOrNull()
+                ?: throw LicenseFailure("clock_rollback", "saved license clock state is invalid")
+        }
+        if (!text.endsWith('\n'))
+            throw LicenseFailure("state_persistence", "saved license state is invalid")
+        val rows = text.removeSuffix("\n").split('\n')
+        if (rows.size != 4)
+            throw LicenseFailure("state_persistence", "saved license state is invalid")
+        val values = linkedMapOf<String, String>()
+        for (row in rows) {
+            val separator = row.indexOf('=')
+            if (separator <= 0)
+                throw LicenseFailure("state_persistence", "saved license state is invalid")
+            val key = row.substring(0, separator)
+            if (key in values)
+                throw LicenseFailure("state_persistence", "saved license state is invalid")
+            values[key] = row.substring(separator + 1)
+        }
+        if (values.keys != setOf("last_seen", "license_id", "fingerprint", "proof")) {
+            throw LicenseFailure("state_persistence", "saved license state is invalid")
+        }
+        val payload =
+            clockPayload(
+                values.getValue("last_seen").toLongOrNull()
+                    ?: throw LicenseFailure("state_persistence", "saved license state is invalid"),
+                values.getValue("license_id"),
+                values.getValue("fingerprint"),
+            )
+        val expectedProof = clockProof(payload)
+        if (
+            !MessageDigest.isEqual(
+                values.getValue("proof").toByteArray(Charsets.US_ASCII),
+                expectedProof.toByteArray(Charsets.US_ASCII),
+            )
+        ) {
+            throw LicenseFailure("state_persistence", "saved license state integrity check failed")
+        }
+        if (
+            values.getValue("license_id") != licenseId ||
+                !MessageDigest.isEqual(
+                    values.getValue("fingerprint").toByteArray(Charsets.US_ASCII),
+                    expectedFingerprint.toByteArray(Charsets.US_ASCII),
+                )
+        ) {
+            throw LicenseFailure(
+                "state_persistence",
+                "saved license state does not match this license",
+            )
+        }
+        return values.getValue("last_seen").toLong()
+    }
+
+    private fun clockPayload(lastSeen: Long, licenseId: String, fingerprint: String): String =
+        "last_seen=$lastSeen\nlicense_id=$licenseId\nfingerprint=$fingerprint\n"
+
+    private fun clockRecord(lastSeen: Long, licenseId: String, fingerprint: String): String {
+        val payload = clockPayload(lastSeen, licenseId, fingerprint)
+        return payload + "proof=${clockProof(payload)}"
+    }
+
+    private fun clockProof(payload: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        return digest
+            .digest(
+                (EMBEDDED_PUBLIC_KEY_HEX + FINGERPRINT_DOMAIN + payload).toByteArray(Charsets.UTF_8)
+            )
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
     private fun readEmmcIdCandidate(): String {
         val partition = File(BACKUP_PARTITION)
-        if (!partition.canRead()) throw LicenseFailure("unavailable", "backup partition is not readable")
+        if (!partition.canRead())
+            throw LicenseFailure("unavailable", "backup partition is not readable")
         val bytes = partition.inputStream().use { it.readNBytes(MAX_BACKUP_BYTES) }
-        val marker = byteArrayOf('0'.code.toByte(), '1'.code.toByte(), 'c'.code.toByte(), 'e'.code.toByte())
+        val marker =
+            byteArrayOf('0'.code.toByte(), '1'.code.toByte(), 'c'.code.toByte(), 'e'.code.toByte())
         for (offset in 0..bytes.size - marker.size) {
             if (!bytes.copyOfRange(offset, offset + marker.size).contentEquals(marker)) continue
             if (offset + EMMCID_LENGTH > bytes.size) continue
-            val candidate = bytes.copyOfRange(offset, offset + EMMCID_LENGTH).toString(Charsets.US_ASCII)
-            if (candidate.all { it in ' '..'~' }) return candidate
+            val candidate =
+                bytes.copyOfRange(offset, offset + EMMCID_LENGTH).toString(Charsets.US_ASCII)
+            if (candidate.startsWith("01ce") && candidate.matches(Regex("[0-9a-f]{52}")))
+                return candidate
         }
         throw LicenseFailure("unavailable", "01ce ASCII identity was not found in backup")
     }
 
     private fun fingerprint(candidate: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        return digest.digest((FINGERPRINT_DOMAIN + candidate).toByteArray(Charsets.UTF_8))
+        return digest
+            .digest((FINGERPRINT_DOMAIN + candidate).toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
-    private fun hexToBytes(value: String): ByteArray = ByteArray(value.length / 2) { index ->
-        value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
-    }
+    private fun hexToBytes(value: String): ByteArray =
+        ByteArray(value.length / 2) { index ->
+            value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
 
     private fun writeStatus(status: String) {
         writeStateFile(STATUS_FILE, status)
@@ -195,16 +320,14 @@ object LicenseManager {
         runCatching { File(FINGERPRINT_FILE).delete() }
     }
 
-    private fun writeStateFile(path: String, value: String) {
+    private fun writeStateFile(path: String, value: String): Boolean =
         runCatching {
-            val target = File(path)
-            target.parentFile?.mkdirs()
-            val temporary = File("$path.tmp")
-            temporary.writeText("$value\n", Charsets.US_ASCII)
-            if (!temporary.renameTo(target)) {
-                target.delete()
-                temporary.renameTo(target)
+                val target = File(path)
+                val parent = target.parentFile ?: return@runCatching false
+                if (!parent.isDirectory && !parent.mkdirs()) return@runCatching false
+                val temporary = File("$path.tmp")
+                temporary.writeText("$value\n", Charsets.US_ASCII)
+                temporary.renameTo(target) && target.readText(Charsets.US_ASCII) == "$value\n"
             }
-        }
-    }
+            .getOrDefault(false)
 }

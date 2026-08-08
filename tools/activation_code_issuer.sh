@@ -1,7 +1,5 @@
 #!/usr/bin/env sh
 
-# Create a device-bound offline activation code from the SHA-256 fingerprint
-# displayed by the KernelSU WebUI. The issuer private key never leaves this PC.
 set -eu
 
 usage() {

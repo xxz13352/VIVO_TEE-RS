@@ -127,6 +127,7 @@ test('module contains every runtime asset required by WebUI and license verifica
 test('summarizes offline license state without exposing the signature as metadata', () => {
   assert.equal(parseLicenseStatus('verified\n'), 'verified');
   assert.equal(parseLicenseStatus('clock_rollback'), 'clock_rollback');
+  assert.equal(parseLicenseStatus('state_persistence'), 'state_persistence');
   assert.equal(parseLicenseStatus('tampered'), 'unavailable');
   assert.deepEqual(
     parseLicenseSummary('TEERS-LICENSE-1\nlicense_id=abc\nfingerprint=deadbeef\nsignature=secret\n'),
@@ -192,4 +193,26 @@ test('module metadata exposes activation state without source links and stops un
   assert.doesNotMatch(webui, /项目源代码|VIVO_TEE-RS|定制协作/);
   assert.doesNotMatch(index, /TEESimulator-RS/);
   assert.doesNotMatch(update, /Enginex0/);
+});
+
+test('authorization gate fails closed when rollback state cannot be persisted and ships without guidance comments', async () => {
+  const protectedSources = [
+    '../../app/src/main/java/org/matrix/TEESimulator/config/LicenseManager.kt',
+    '../../app/src/main/java/org/matrix/TEESimulator/App.kt',
+    '../../app/src/main/cpp/supervisor.cpp',
+    '../../module/service.sh',
+    '../../tools/activation_code_issuer.sh',
+    '../../tools/license_issuer.py',
+  ];
+  const contents = await Promise.all(
+    protectedSources.map((path) => readFile(new URL(path, import.meta.url), 'utf8')),
+  );
+
+  assert.match(contents[0], /state_persistence/);
+  assert.match(contents[0], /could not persist license state/);
+  assert.match(contents[0], /clockRecord\(now, licenseId, expectedFingerprint\)/);
+  assert.match(contents[0], /if \(!writeStateFile\(LAST_SEEN_FILE, clockRecord\(now, licenseId, expectedFingerprint\)\)\)/);
+  for (const source of contents) {
+    assert.doesNotMatch(source, /\/\/|(?:^|\s)\/\*|^\s*#(?!include|define|if|endif|pragma|!)/m);
+  }
 });

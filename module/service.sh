@@ -21,6 +21,7 @@ update_module_status() {
     device_mismatch) label='设备不匹配' ;;
     invalid_signature|invalid_format|invalid_product|invalid_key) label='激活码无效' ;;
     clock_rollback) label='时钟回退' ;;
+    state_persistence) label='授权状态异常' ;;
     unavailable) label='验证失败' ;;
     *) label='验证中' ;;
   esac
@@ -39,7 +40,6 @@ else
   printf '%s\n' unavailable > "$CONFIG_DIR/module_integrity_status"
 fi
 
-# The supervisor exits rather than restarting when the daemon rejects an offline license.
 ./supervisor ./daemon "$MODDIR" &
 
 (
@@ -60,13 +60,11 @@ fi
   update_module_status unavailable
 ) &
 
-# Debug builds ship diag.sh; its presence enables the external-storage diagnostic plane.
 if [ -f "$MODDIR/diag.sh" ]; then
   . "$MODDIR/diag.sh"
   diag_setup
 fi
 
-# Clear logd size persist properties once boot completes
 (
   until [ "$(getprop sys.boot_completed)" = "1" ]; do
     sleep 1

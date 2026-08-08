@@ -1,4 +1,3 @@
-// Fork-based supervisor for instant daemon restart
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
@@ -23,7 +22,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Forward termination signals to exit cleanly
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
 
@@ -40,32 +38,27 @@ int main(int argc, char *argv[]) {
 
         if (pid < 0) {
             perror("fork failed");
-            usleep(100000); // 100ms backoff on fork failure
+            usleep(100000);
             continue;
         }
 
         if (pid == 0) {
-            // Child: become the daemon
-            prctl(PR_SET_PDEATHSIG, SIGKILL); // Die if parent dies
-            setpriority(PRIO_PROCESS, 0, 10);  // lower CPU priority than foreground
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            setpriority(PRIO_PROCESS, 0, 10);
             execv(daemon_path, daemon_argv);
             perror("execv failed");
             _exit(127);
         }
 
-        // Parent: wait for child to exit
         int status;
         waitpid(pid, &status, 0);
 
         if (should_exit) break;
 
-        // The Java daemon uses this exit code after a missing, expired, or invalid
-        // offline license. Do not turn an entitlement failure into a restart loop.
         if (WIFEXITED(status) && WEXITSTATUS(status) == LICENSE_REJECT_EXIT_CODE) {
             return 0;
         }
 
-        // Exponential backoff on rapid crashes, reset if child was stable
         struct timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
         long lived_ms = (now.tv_sec - child_start.tv_sec) * 1000 +
