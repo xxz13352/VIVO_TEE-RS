@@ -73,6 +73,11 @@ export function parseLicenseStatus(value) {
     : 'unavailable';
 }
 
+export function parseDeviceFingerprint(value) {
+  const fingerprint = String(value).trim();
+  return /^[0-9a-f]{64}$/.test(fingerprint) ? fingerprint : '';
+}
+
 export function parseLicenseSummary(text) {
   const summary = {};
   for (const rawLine of String(text).split(/\r?\n/)) {
@@ -239,6 +244,7 @@ if (typeof document !== 'undefined') {
       autoPackageRefresh: false,
       licenseText: '',
       licenseStatus: 'unavailable',
+      deviceFingerprint: '',
       integrityStatus: 'unavailable',
       query: '',
       overridePackage: '',
@@ -268,13 +274,14 @@ if (typeof document !== 'undefined') {
       state.busy = true;
       render();
       try {
-        const [targets, patches, bootMode, autoPackageRefresh, licenseText, licenseStatus, keyboxOutput, integrityStatus] = await Promise.all([
+        const [targets, patches, bootMode, autoPackageRefresh, licenseText, licenseStatus, deviceFingerprint, keyboxOutput, integrityStatus] = await Promise.all([
           readFile(`${CONFIG_DIR}/target.txt`),
           readFile(`${CONFIG_DIR}/security_patch.txt`),
           readFile(`${CONFIG_DIR}/boot_props_mode`),
           readFile(AUTO_PACKAGE_REFRESH_FILE),
           readFile(`${CONFIG_DIR}/license.lic`),
           readFile(`${CONFIG_DIR}/license_status`),
+          readFile(`${CONFIG_DIR}/license_device_fingerprint`),
           exec(`find '${CONFIG_DIR}' -maxdepth 1 -type f -name '*.xml' -printf '%f\\n'`),
           readFile(`${CONFIG_DIR}/module_integrity_status`),
         ]);
@@ -284,6 +291,7 @@ if (typeof document !== 'undefined') {
         state.autoPackageRefresh = parseAutoPackageRefresh(autoPackageRefresh);
         state.licenseText = licenseText;
         state.licenseStatus = parseLicenseStatus(licenseStatus);
+        state.deviceFingerprint = parseDeviceFingerprint(deviceFingerprint);
         state.integrityStatus = parseIntegrityStatus(integrityStatus);
         if (keyboxOutput.errno !== 0) throw new Error(keyboxOutput.stderr || 'Could not list keyboxes');
         state.keyboxes = [...new Set([DEFAULT_KEYBOX, ...keyboxOutput.stdout.split(/\r?\n/).filter(isValidKeyboxName)])].sort();
@@ -391,7 +399,8 @@ if (typeof document !== 'undefined') {
       const statusLabels = { verified: '已验证', missing: '未导入', expired: '已过期', device_mismatch: '设备不匹配', invalid_signature: '签名无效', invalid_format: '格式无效', invalid_product: '产品不匹配', invalid_key: '公钥无效', unavailable: '等待模块验证' };
       const status = statusLabels[state.licenseStatus] || statusLabels.unavailable;
       const statusClass = state.licenseStatus === 'verified' ? 'verified' : state.licenseStatus === 'missing' ? 'unavailable' : 'modified';
-      return `<section class="panel-section about-panel"><div class="section-heading"><div><h2>定制与支持</h2><p>项目来源、定制协作、捐赠授权和离线许可证。</p></div></div><div class="integrity-status ${statusClass}"><strong>离线授权：${status}</strong><p>${escapeHtml(summary.license_id ? `许可证 ${summary.license_id}` : '签发端生成许可证后粘贴到下面。')}</p></div><label class="field"><span>导入离线许可证</span><textarea id="license-input" rows="9" spellcheck="false" placeholder="粘贴 license.lic 的完整内容">${escapeHtml(state.licenseText)}</textarea></label><button type="button" class="primary" data-action="save-license"${state.busy ? ' disabled' : ''}>保存许可证</button><div class="info-list"><article><h3>项目源代码</h3><p>发布版本、变更记录和安装包以项目仓库为准。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS" target="_blank" rel="noreferrer">打开 VIVO_TEE-RS</a></article><article><h3>定制协作</h3><p>提交设备型号、Android 版本、KernelSU 版本和预期功能，方便定位适配范围。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS/issues" target="_blank" rel="noreferrer">提交定制需求</a></article><article><h3>支持与捐赠</h3><p>捐赠确认后由维护者签发设备绑定许可证。许可证只在签发设备离线生效，换机需要重新签发。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS/releases" target="_blank" rel="noreferrer">查看最新 Release</a></article></div></section>`;
+      const activationRequest = state.licenseStatus === 'verified' ? '' : `<label class="field"><span>设备指纹（SHA-256）</span><input value="${escapeHtml(state.deviceFingerprint || '模块尚未读取到 backup 身份')}" readonly></label>`;
+      return `<section class="panel-section about-panel"><div class="section-heading"><div><h2>定制与支持</h2><p>项目来源、定制协作、捐赠授权和离线许可证。</p></div></div><div class="integrity-status ${statusClass}"><strong>离线授权：${status}</strong><p>${escapeHtml(summary.license_id ? `许可证 ${summary.license_id}` : '复制设备指纹给签发端，获取激活码后粘贴。')}</p></div>${activationRequest}<label class="field"><span>激活码（完整 license.lic）</span><textarea id="license-input" rows="9" spellcheck="false" placeholder="粘贴签发端生成的激活码">${escapeHtml(state.licenseText)}</textarea></label><button type="button" class="primary" data-action="save-license"${state.busy ? ' disabled' : ''}>保存激活码</button><div class="info-list"><article><h3>项目源代码</h3><p>发布版本、变更记录和安装包以项目仓库为准。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS" target="_blank" rel="noreferrer">打开 VIVO_TEE-RS</a></article><article><h3>定制协作</h3><p>提交设备型号、Android 版本、KernelSU 版本和预期功能，方便定位适配范围。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS/issues" target="_blank" rel="noreferrer">提交定制需求</a></article><article><h3>支持与捐赠</h3><p>捐赠确认后由维护者签发设备绑定许可证。许可证只在签发设备离线生效，换机需要重新签发。</p><a class="text-link" href="https://github.com/xxz13352/VIVO_TEE-RS/releases" target="_blank" rel="noreferrer">查看最新 Release</a></article></div></section>`;
     }
 
     function render() {

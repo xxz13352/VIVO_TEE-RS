@@ -158,7 +158,14 @@ python tools/license_issuer.py init \
   --public-key module/license_public_key
 ```
 
-Issue a license from the candidate printed by `tools/extract_backup_emmcid.sh`:
+When the module has no valid license, the WebUI shows a 64-character device SHA-256 fingerprint. Generate its activation code locally without contacting a server:
+
+```bash
+LICENSE_PRIVATE_KEY=~/.teesimulator-rs/license-private.pem \
+  tools/activation_code_issuer.sh '<webui-sha256>' activation.lic donor-001 365
+```
+
+The script creates the same signed `license.lic` format accepted by the WebUI. You can also issue it directly from the candidate printed by `tools/extract_backup_emmcid.sh`:
 
 ```bash
 python tools/license_issuer.py issue \

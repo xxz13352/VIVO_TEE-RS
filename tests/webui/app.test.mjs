@@ -10,6 +10,7 @@ import {
   isValidPackageName,
   isValidPatchValue,
   parseAutoPackageRefresh,
+  parseDeviceFingerprint,
   parseIntegrityStatus,
   parseLicenseStatus,
   parseLicenseSummary,
@@ -123,6 +124,13 @@ test('summarizes offline license state without exposing the signature as metadat
     parseLicenseSummary('TEERS-LICENSE-1\nlicense_id=abc\nfingerprint=deadbeef\nsignature=secret\n'),
     { license_id: 'abc', fingerprint: 'deadbeef' },
   );
+});
+
+test('exposes only a complete lowercase SHA-256 device fingerprint to activation UI', () => {
+  const fingerprint = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  assert.equal(parseDeviceFingerprint(`${fingerprint}\n`), fingerprint);
+  assert.equal(parseDeviceFingerprint('0123'), '');
+  assert.equal(parseDeviceFingerprint(fingerprint.toUpperCase()), '');
 });
 
 test('installer preserves KernelSU WebUI files when SKIPUNZIP is enabled', async () => {

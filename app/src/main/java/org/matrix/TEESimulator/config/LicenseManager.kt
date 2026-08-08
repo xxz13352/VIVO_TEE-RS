@@ -16,6 +16,7 @@ import org.matrix.TEESimulator.logging.SystemLogger
 object LicenseManager {
     private const val LICENSE_FILE = "/data/adb/tricky_store/license.lic"
     private const val STATUS_FILE = "/data/adb/tricky_store/license_status"
+    private const val FINGERPRINT_FILE = "/data/adb/tricky_store/license_device_fingerprint"
     private const val PUBLIC_KEY_FILE = "/data/adb/modules/tricky_store/license_public_key"
     private const val BACKUP_PARTITION = "/dev/block/by-name/backup"
     private const val FORMAT = "TEERS-LICENSE-1"
@@ -29,21 +30,24 @@ object LicenseManager {
 
     fun verifyOrThrow() {
         try {
+            val candidate = readEmmcIdCandidate()
+            val expectedFingerprint = fingerprint(candidate)
+            writeFingerprint(expectedFingerprint)
             val claims = readClaims()
             verifySignature(claims.payload, claims.signature)
             validateClaims(claims.values)
-            val candidate = readEmmcIdCandidate()
-            val expectedFingerprint = fingerprint(candidate)
             if (claims.values["fingerprint"] != expectedFingerprint) {
                 throw LicenseFailure("device_mismatch", "license is bound to another backup identity")
             }
             writeStatus("verified")
             SystemLogger.info("Offline license verified: ${claims.values["license_id"]}")
         } catch (failure: LicenseFailure) {
+            if (failure.status == "unavailable") clearFingerprint()
             writeStatus(failure.status)
             SystemLogger.error("Offline license rejected: ${failure.message}")
             throw failure
         } catch (error: Exception) {
+            clearFingerprint()
             writeStatus("unavailable")
             SystemLogger.error("Offline license validation failed", error)
             throw LicenseFailure("unavailable", error.message ?: "license validation failed")
@@ -164,11 +168,23 @@ object LicenseManager {
     }
 
     private fun writeStatus(status: String) {
+        writeStateFile(STATUS_FILE, status)
+    }
+
+    private fun writeFingerprint(value: String) {
+        writeStateFile(FINGERPRINT_FILE, value)
+    }
+
+    private fun clearFingerprint() {
+        runCatching { File(FINGERPRINT_FILE).delete() }
+    }
+
+    private fun writeStateFile(path: String, value: String) {
         runCatching {
-            val target = File(STATUS_FILE)
+            val target = File(path)
             target.parentFile?.mkdirs()
-            val temporary = File("$STATUS_FILE.tmp")
-            temporary.writeText("$status\n", Charsets.US_ASCII)
+            val temporary = File("$path.tmp")
+            temporary.writeText("$value\n", Charsets.US_ASCII)
             if (!temporary.renameTo(target)) {
                 target.delete()
                 temporary.renameTo(target)
