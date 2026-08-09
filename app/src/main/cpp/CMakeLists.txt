@@ -24,6 +24,7 @@ target_include_directories(libinject.so PUBLIC include)
 target_link_libraries(libinject.so PRIVATE lsplt_static)
 
 add_executable(libsupervisor.so supervisor.cpp)
+target_include_directories(libsupervisor.so PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 target_link_libraries(libsupervisor.so PRIVATE log)
 
 add_library(${CMAKE_PROJECT_NAME} SHARED binder_interceptor.cpp)

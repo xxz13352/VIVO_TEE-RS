@@ -4,4 +4,3 @@ version=${REPLACEMEVER}
 versionCode=${REPLACEMEVERCODE}
 author=酷安@酷狗贼定制
 description=设备授权保护服务 | 授权状态：验证中
-updateJson=https://raw.githubusercontent.com/xxz13352/VIVO_TEE-RS/main/module/update.json

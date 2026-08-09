@@ -234,7 +234,7 @@ function escapeHtml(value) {
 if (typeof document !== 'undefined') {
   void import('./kernelsu.js').then(({ exec, getPackagesInfo, listPackages, moduleInfo, toast }) => {
     const state = {
-      activeTab: 'targets',
+      activeTab: 'about',
       busy: false,
       keyboxes: [DEFAULT_KEYBOX],
       packages: [],
@@ -253,6 +253,17 @@ if (typeof document !== 'undefined') {
     const panel = document.querySelector('#panel');
     const status = document.querySelector('#status');
     const tabs = [...document.querySelectorAll('[data-tab]')];
+
+    function isAuthorized() {
+      return state.licenseStatus === 'verified' && state.integrityStatus === 'verified';
+    }
+
+    function denyUnauthorized() {
+      state.activeTab = 'about';
+      setStatus('未授权：模块功能已锁定', 'error');
+      render();
+      return false;
+    }
 
     function setStatus(message, kind = '') {
       status.textContent = message;
@@ -274,25 +285,40 @@ if (typeof document !== 'undefined') {
       state.busy = true;
       render();
       try {
-        const [targets, patches, bootMode, autoPackageRefresh, licenseText, licenseStatus, deviceFingerprint, keyboxOutput, integrityStatus] = await Promise.all([
+        const [licenseText, licenseStatus, deviceFingerprint, integrityStatus] = await Promise.all([
+          readFile(`${CONFIG_DIR}/license.lic`),
+          readFile(`${CONFIG_DIR}/license_status`),
+          readFile(`${CONFIG_DIR}/license_device_fingerprint`),
+          readFile(`${CONFIG_DIR}/module_integrity_status`),
+        ]);
+        state.licenseText = licenseText;
+        state.licenseStatus = parseLicenseStatus(licenseStatus);
+        state.deviceFingerprint = parseDeviceFingerprint(deviceFingerprint);
+        state.integrityStatus = parseIntegrityStatus(integrityStatus);
+
+        if (!isAuthorized()) {
+          state.targets = [];
+          state.patches = { global: emptyPatchLevel(), overrides: {} };
+          state.bootPropsMode = 'auto';
+          state.autoPackageRefresh = false;
+          state.keyboxes = [DEFAULT_KEYBOX];
+          state.packages = [];
+          state.activeTab = 'about';
+          setStatus('未授权：请输入激活码', 'error');
+          return;
+        }
+
+        const [targets, patches, bootMode, autoPackageRefresh, keyboxOutput] = await Promise.all([
           readFile(`${CONFIG_DIR}/target.txt`),
           readFile(`${CONFIG_DIR}/security_patch.txt`),
           readFile(`${CONFIG_DIR}/boot_props_mode`),
           readFile(AUTO_PACKAGE_REFRESH_FILE),
-          readFile(`${CONFIG_DIR}/license.lic`),
-          readFile(`${CONFIG_DIR}/license_status`),
-          readFile(`${CONFIG_DIR}/license_device_fingerprint`),
           exec(`find '${CONFIG_DIR}' -maxdepth 1 -type f -name '*.xml' -printf '%f\\n'`),
-          readFile(`${CONFIG_DIR}/module_integrity_status`),
         ]);
         state.targets = parseTargets(targets);
         state.patches = parsePatchLevels(patches);
         state.bootPropsMode = ['auto', 'force', 'disable'].includes(bootMode.trim()) ? bootMode.trim() : 'auto';
         state.autoPackageRefresh = parseAutoPackageRefresh(autoPackageRefresh);
-        state.licenseText = licenseText;
-        state.licenseStatus = parseLicenseStatus(licenseStatus);
-        state.deviceFingerprint = parseDeviceFingerprint(deviceFingerprint);
-        state.integrityStatus = parseIntegrityStatus(integrityStatus);
         if (keyboxOutput.errno !== 0) throw new Error(keyboxOutput.stderr || 'Could not list keyboxes');
         state.keyboxes = [...new Set([DEFAULT_KEYBOX, ...keyboxOutput.stdout.split(/\r?\n/).filter(isValidKeyboxName)])].sort();
         const packageNames = listPackages('user');
@@ -307,24 +333,28 @@ if (typeof document !== 'undefined') {
     }
 
     async function saveTargets() {
+      if (!isAuthorized()) return denyUnauthorized();
       await writeFile(`${CONFIG_DIR}/target.txt`, serializeTargets(state.targets));
       toast('目标应用已保存');
       await loadState();
     }
 
     async function savePatches() {
+      if (!isAuthorized()) return denyUnauthorized();
       await writeFile(`${CONFIG_DIR}/security_patch.txt`, serializePatchLevels(state.patches));
       toast('安全补丁配置已保存');
       await loadState();
     }
 
     async function saveBootMode() {
+      if (!isAuthorized()) return denyUnauthorized();
       await writeFile(`${CONFIG_DIR}/boot_props_mode`, `${state.bootPropsMode}\n`);
       toast('启动属性模式已保存');
       await loadState();
     }
 
     async function saveAutoPackageRefresh() {
+      if (!isAuthorized()) return denyUnauthorized();
       await writeFile(AUTO_PACKAGE_REFRESH_FILE, serializeAutoPackageRefresh(state.autoPackageRefresh));
       toast(state.autoPackageRefresh ? '已开启自动更新应用包名' : '已关闭自动更新应用包名');
     }
@@ -336,6 +366,7 @@ if (typeof document !== 'undefined') {
     }
 
     async function refreshPackageCatalog() {
+      if (!isAuthorized()) return denyUnauthorized();
       state.busy = true;
       render();
       try {
@@ -397,20 +428,26 @@ if (typeof document !== 'undefined') {
     function renderAbout() {
       const summary = parseLicenseSummary(state.licenseText);
       const statusLabels = { verified: '已验证', missing: '未导入', expired: '已过期', device_mismatch: '设备不匹配', invalid_signature: '签名无效', invalid_format: '格式无效', invalid_product: '产品不匹配', invalid_key: '公钥无效', clock_rollback: '系统时间回退', state_persistence: '授权状态异常', unavailable: '等待模块验证' };
-      const status = statusLabels[state.licenseStatus] || statusLabels.unavailable;
-      const statusClass = state.licenseStatus === 'verified' ? 'verified' : state.licenseStatus === 'missing' ? 'unavailable' : 'modified';
+      const status = state.integrityStatus === 'modified' ? '模块完整性异常' : statusLabels[state.licenseStatus] || statusLabels.unavailable;
+      const statusClass = isAuthorized() ? 'verified' : state.licenseStatus === 'missing' && state.integrityStatus !== 'modified' ? 'unavailable' : 'modified';
       const activationRequest = state.licenseStatus === 'verified' ? '' : `<label class="field"><span>设备指纹（SHA-256）</span><input value="${escapeHtml(state.deviceFingerprint || '模块尚未读取到 backup 身份')}" readonly></label>`;
       return `<section class="panel-section about-panel"><div class="section-heading"><div><h2>设备授权</h2><p>离线验证状态与设备绑定激活码。</p></div></div><div class="integrity-status ${statusClass}"><strong>离线授权：${status}</strong><p>${escapeHtml(summary.license_id ? `许可证 ${summary.license_id}` : '复制设备指纹并导入签发的激活码。')}</p></div>${activationRequest}<label class="field"><span>激活码（完整 license.lic）</span><textarea id="license-input" rows="9" spellcheck="false" placeholder="粘贴签发端生成的激活码">${escapeHtml(state.licenseText)}</textarea></label><button type="button" class="primary" data-action="save-license"${state.busy ? ' disabled' : ''}>保存激活码</button></section>`;
     }
 
     function render() {
-      tabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.tab === state.activeTab));
-      panel.innerHTML = state.busy ? '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>' : state.activeTab === 'targets' ? renderTargets() : state.activeTab === 'patches' ? renderPatches() : state.activeTab === 'system' ? renderSystem() : renderAbout();
+      const authorized = isAuthorized();
+      if (!authorized) state.activeTab = 'about';
+      tabs.forEach((tab) => {
+        tab.hidden = !authorized;
+        tab.classList.toggle('is-active', tab.dataset.tab === state.activeTab);
+      });
+      panel.innerHTML = state.busy && authorized ? '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>' : state.activeTab === 'targets' ? renderTargets() : state.activeTab === 'patches' ? renderPatches() : state.activeTab === 'system' ? renderSystem() : renderAbout();
     }
 
     document.addEventListener('click', async (event) => {
       const tab = event.target.closest('[data-tab]');
       if (tab) {
+        if (!isAuthorized()) return denyUnauthorized();
         state.activeTab = tab.dataset.tab;
         render();
         if (state.activeTab === 'targets' && state.autoPackageRefresh) void refreshPackageCatalog();
@@ -418,6 +455,7 @@ if (typeof document !== 'undefined') {
       }
       const action = event.target.closest('[data-action]');
       if (!action || state.busy) return;
+      if (!isAuthorized() && action.dataset.action !== 'save-license') return denyUnauthorized();
       try {
         if (action.dataset.action === 'add') { state.targets = addTarget(state.targets, action.dataset.package); render(); }
         if (action.dataset.action === 'remove') { const row = action.closest('[data-package]'); state.targets = state.targets.filter((target) => target.packageName !== row.dataset.package); render(); }
@@ -433,11 +471,13 @@ if (typeof document !== 'undefined') {
     });
 
     document.addEventListener('input', (event) => {
+      if (!isAuthorized() && event.target.id !== 'license-input') return;
       if (event.target.id === 'package-search') { state.query = event.target.value; render(); }
       if (event.target.id === 'license-input') state.licenseText = event.target.value;
       if (event.target.dataset.patch) { const [scope, field] = event.target.dataset.patch.split(':'); const target = scope === 'global' ? state.patches.global : (state.patches.overrides[scope] ??= emptyPatchLevel()); if (isValidPatchValue(event.target.value)) target[field] = event.target.value.trim(); }
     });
     document.addEventListener('change', (event) => {
+      if (!isAuthorized()) return denyUnauthorized();
       const row = event.target.closest('[data-package]');
       if (row && event.target.dataset.role) { const target = state.targets.find((item) => item.packageName === row.dataset.package); target[event.target.dataset.role] = event.target.value; }
        if (event.target.name === 'boot-mode') state.bootPropsMode = event.target.value;

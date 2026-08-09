@@ -1,1 +1,27 @@
 .worktrees/
+
+# Build artifacts
+build/
+out/
+.gradle/
+.kotlin/
+app/build/
+stub/build/
+native-certgen/target/
+
+# Generated files
+app/src/main/cpp/generated/
+app/src/main/jniLibs/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+*.iml
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db

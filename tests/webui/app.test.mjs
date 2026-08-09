@@ -185,14 +185,59 @@ test('module metadata exposes activation state without source links and stops un
 
   assert.match(metadata, /授权状态：验证中/);
   assert.doesNotMatch(metadata, /JingMatrix|Enginex0|github\.com/);
-  assert.match(service, /update_module_status/);
+  assert.doesNotMatch(service, /sed -i/);
+  assert.doesNotMatch(service, /update_integrity_manifest/);
+  assert.match(service, /--verify-install/);
+  assert.match(service, /--license-preflight/);
+  assert.match(service, /module_integrity_status/);
   assert.match(service, /license_status/);
   assert.match(supervisor, /LICENSE_REJECT_EXIT_CODE/);
   assert.match(supervisor, /WEXITSTATUS\(status\) == LICENSE_REJECT_EXIT_CODE/);
   assert.match(app, /exitProcess\(LicenseManager\.REJECT_EXIT_CODE\)/);
+  assert.match(app, /args\.contains\("--license-preflight"\)/);
   assert.doesNotMatch(webui, /项目源代码|VIVO_TEE-RS|定制协作/);
   assert.doesNotMatch(index, /TEESimulator-RS/);
   assert.doesNotMatch(update, /Enginex0/);
+});
+
+test('native supervisor owns the integrity anchor and exposes install verification', async () => {
+  const [supervisor, daemon, cmake, buildScript] = await Promise.all([
+    readFile(new URL('../../app/src/main/cpp/supervisor.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../../module/daemon', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/src/main/cpp/CMakeLists.txt', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/build.gradle.kts', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(supervisor, /SHA256/);
+  assert.match(supervisor, /--verify-install/);
+  assert.match(supervisor, /--runtime-check/);
+  assert.match(supervisor, /TracerPid/);
+  assert.match(supervisor, /LD_PRELOAD/);
+  assert.match(supervisor, /integrity_anchor\.h/);
+  assert.match(daemon, /shift/);
+  assert.match(daemon, /--runtime-check/);
+  assert.match(daemon, /org\.matrix\.TEESimulator\.App "\$@"/);
+  assert.match(cmake, /generated/);
+  assert.match(buildScript, /integrity_anchor\.h/);
+  assert.match(buildScript, /configureCMake|buildCMake|externalNativeBuild/);
+});
+
+test('installer verifies the staged module before extracting payload files', async () => {
+  const installer = await readFile(new URL('../../module/customize.sh', import.meta.url), 'utf8');
+
+  assert.match(installer, /\.integrity_supervisor/);
+  assert.match(installer, /--verify-install/);
+  assert.match(installer, /Module integrity verification failed/);
+});
+
+test('WebUI gates every feature surface behind verified authorization', async () => {
+  const webui = await readFile(new URL('../../module/webroot/app.js', import.meta.url), 'utf8');
+
+  assert.match(webui, /isAuthorized/);
+  assert.match(webui, /licenseStatus === 'verified'/);
+  assert.match(webui, /hidden/);
+  assert.match(webui, /save-license/);
+  assert.match(webui, /Unauthorized|未授权/);
 });
 
 test('authorization gate fails closed when rollback state cannot be persisted and ships without guidance comments', async () => {

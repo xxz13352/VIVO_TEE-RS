@@ -15,7 +15,7 @@ fi
 
 # --- Version Info ---
 VERSION=$(grep_prop version "${TMPDIR}/module.prop")
-ui_print "- Installing TEESimulator-RS $VERSION"
+ui_print "- Installing TEE Activation Service $VERSION"
 ui_print "- 酷安@酷狗贼定制 (vivo Android 16 适配版)"
 ui_print ""
 
@@ -38,6 +38,18 @@ else
   ui_print "- Device SDK: $API"
 fi
 ui_print ""
+
+INTEGRITY_BIN="$TMPDIR/.integrity_supervisor"
+if ! unzip -p "$ZIPFILE" "lib/$ABI_DIR/libsupervisor.so" > "$INTEGRITY_BIN"; then
+  abort "! Failed to extract native integrity verifier"
+fi
+chmod 755 "$INTEGRITY_BIN"
+if ! "$INTEGRITY_BIN" --verify-install "$TMPDIR"; then
+  rm -f "$INTEGRITY_BIN"
+  abort "! Module integrity verification failed"
+fi
+rm -f "$INTEGRITY_BIN"
+ui_print "- Native module integrity verified"
 
 # --- Helper to install files ---
 install_file() {
@@ -123,9 +135,9 @@ fi
 if [ ! -f "$CONFIG_DIR/security_patch.txt" ]; then
   ui_print "- Adding default security patch config (mirror device props)"
   printf '%s\n' \
-    '# TEESimulator default: mirror live device props.' \
+    '# Default: mirror live device props.' \
     '# system=prop reads ro.build.version.security_patch at cert-gen time;' \
-    '# boot and vendor are auto-forced to prop too (ConfigurationManager.kt:253-256).' \
+    '# boot and vendor are auto-forced to prop too.' \
     '# Override with explicit YYYY-MM-DD dates if you want active spoofing.' \
     'system=prop' > "$CONFIG_DIR/security_patch.txt"
   chmod 644 "$CONFIG_DIR/security_patch.txt"

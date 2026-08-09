@@ -53,6 +53,68 @@ fun sha256(file: File): String {
     return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 }
 
+val integrityProtectedPaths =
+    listOf(
+        "module.prop",
+        "service.sh",
+        "customize.sh",
+        "daemon",
+        "verify_integrity.sh",
+        "webroot/index.html",
+        "webroot/app.css",
+        "webroot/app.js",
+        "webroot/kernelsu.js",
+    )
+
+val generateIntegrityAnchor by
+    tasks.registering {
+        group = "TEESimulator-RS Native Build"
+        description = "Embeds module integrity SHA-256 anchors into libsupervisor.so."
+
+        val sourceModuleDir = rootProject.projectDir.resolve("module")
+        inputs.files(integrityProtectedPaths.map { sourceModuleDir.resolve(it) })
+        inputs.property("verName", verName)
+        inputs.property("gitCommitCount", gitCommitCount)
+        val outputHeader = projectDir.resolve("src/main/cpp/generated/integrity_anchor.h")
+        outputs.file(outputHeader)
+
+        doLast {
+            val stagedProp =
+                sourceModuleDir
+                    .resolve("module.prop")
+                    .readText()
+                    .replace("\r\n", "\n")
+                    .replace("\${REPLACEMEVER}", "$verName-$gitCommitCount")
+                    .replace("\${REPLACEMEVERCODE}", gitCommitCount.toString())
+            val entries = linkedMapOf<String, String>()
+            entries["module.prop"] = sha256Bytes(stagedProp.toByteArray())
+            for (relativePath in integrityProtectedPaths.drop(1)) {
+                entries[relativePath] = sha256(sourceModuleDir.resolve(relativePath))
+            }
+            outputHeader.parentFile.mkdirs()
+            outputHeader.writeText(
+                buildString {
+                    appendLine("#pragma once")
+                    appendLine()
+                    appendLine("#define EXPECTED_MODULE_PROP_SHA256 \"" + entries.getValue("module.prop") + "\"")
+                    appendLine("#define EXPECTED_SERVICE_SHA256 \"" + entries.getValue("service.sh") + "\"")
+                    appendLine("#define EXPECTED_CUSTOMIZE_SHA256 \"" + entries.getValue("customize.sh") + "\"")
+                    appendLine("#define EXPECTED_DAEMON_SHA256 \"" + entries.getValue("daemon") + "\"")
+                    appendLine("#define EXPECTED_VERIFY_INTEGRITY_SHA256 \"" + entries.getValue("verify_integrity.sh") + "\"")
+                    appendLine("#define EXPECTED_WEBROOT_INDEX_SHA256 \"" + entries.getValue("webroot/index.html") + "\"")
+                    appendLine("#define EXPECTED_WEBROOT_CSS_SHA256 \"" + entries.getValue("webroot/app.css") + "\"")
+                    appendLine("#define EXPECTED_WEBROOT_APP_SHA256 \"" + entries.getValue("webroot/app.js") + "\"")
+                    appendLine("#define EXPECTED_WEBROOT_KERNELSU_SHA256 \"" + entries.getValue("webroot/kernelsu.js") + "\"")
+                }
+            )
+        }
+    }
+
+fun sha256Bytes(bytes: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    return digest.digest(bytes).joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+}
+
 android {
     namespace = "org.matrix.TEESimulator"
     compileSdk = 36
@@ -128,35 +190,14 @@ val buildRustCertgen by
 
 // AGP auto-detects jniLibs/ as an input to mergeJniLibFolders — wire the dependency
 tasks.configureEach {
+    if (name.contains("configureCMake", ignoreCase = true) || name.contains("buildCMake", ignoreCase = true)) {
+        dependsOn(generateIntegrityAnchor)
+    }
     if (name.endsWith("JniLibFolders") && name.startsWith("merge")) {
         dependsOn(buildRustCertgen)
     }
 }
 
-// Auto-rewrite module/update.json on every packaging build so versionCode and
-// zipUrl track gitCommitCount automatically, matching module.prop.
-val refreshUpdateJson by
-    tasks.registering {
-        group = "TEESimulator-RS Module Packaging"
-        description = "Rewrite module/update.json to match current verName and gitCommitCount."
-
-        val updateJsonFile = rootProject.projectDir.resolve("module/update.json")
-        val capturedVerName = verName
-        val capturedCount = gitCommitCount
-
-        inputs.property("verName", capturedVerName)
-        inputs.property("gitCommitCount", capturedCount)
-        outputs.file(updateJsonFile)
-
-        doLast {
-            val fullVer = "$capturedVerName-$capturedCount"
-            updateJsonFile.writeText(
-                """{
-  "version": "$fullVer",
-  "versionCode": $capturedCount,
-  "zipUrl": "https://github.com/xxz13352/VIVO_TEE-RS/releases/download/$fullVer/TEESimulator-RS-$fullVer-Release.zip",
-  "changelog": "https://raw.githubusercontent.com/xxz13352/VIVO_TEE-RS/main/module/changelog.md"
-}
 """
             )
         }
@@ -186,7 +227,7 @@ androidComponents {
                     dependsOn("strip${capitalized}DebugSymbols")
                 }
                 dependsOn(buildRustCertgen)
-                dependsOn(refreshUpdateJson)
+                dependsOn(generateIntegrityAnchor)
 
                 if (isDebug) {
                     from(variant.artifacts.get(SingleArtifact.APK)) {
@@ -224,6 +265,7 @@ androidComponents {
                 from(sourceModuleDir) {
                     exclude("module.prop") // Exclude the template file.
                     exclude("diag.sh") // Debug-only diagnostic plane; included for debug below.
+                    exclude("update.json") // Update mechanism removed; never ship OTA metadata.
                 }
 
                 // Copy and filter the module.prop template separately.
@@ -258,17 +300,7 @@ androidComponents {
 
                 doLast {
                     val stagedModule = tempModuleDir.get().asFile
-                    val protectedPaths =
-                        listOf(
-                            "module.prop",
-                            "service.sh",
-                            "customize.sh",
-                            "verify_integrity.sh",
-                            "webroot/index.html",
-                            "webroot/app.css",
-                            "webroot/app.js",
-                            "webroot/kernelsu.js",
-                        )
+                    val protectedPaths = integrityProtectedPaths
                     val entries =
                         protectedPaths.map { relativePath ->
                             val stagedFile = stagedModule.resolve(relativePath)

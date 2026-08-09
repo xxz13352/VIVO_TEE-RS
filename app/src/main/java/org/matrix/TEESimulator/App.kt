@@ -39,6 +39,8 @@ object App {
 
             LicenseManager.verifyOrThrow()
 
+            if (args.contains("--license-preflight")) return
+
             BootStateManager.apply()
 
             ConfigurationManager.initialize()
